@@ -1,0 +1,22 @@
+{
+  "title": "Sasuke vs Naruto Fragment AMV",
+  "song_path": "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3",
+  "target_duration": 21.0,
+  "frame_rate": 60.0,
+  "width": 2160,
+  "height": 3840,
+  "clips": [
+    {
+      "clip_id": "sasuke_fight",
+      "path": "C:\\Users\\L.Thirumala Teja\\Downloads\\Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4",
+      "character": "Sasuke",
+      "scene": "Fight scene",
+      "notes": "Fast action sequence. Use natural cuts to sync with the beat.",
+      "start_time": 0,
+      "end_time": 21.0
+    }
+  ],
+  "editing_style": "Fast-paced, aggressive, high energy to match phonk beat. Hard cuts on impact moments.",
+  "mood": "Intense, action-packed",
+  "special_requirements": "Use the existing Gemini provider and existing AMV planner/executor. The plan must contain deterministic operations only. Trim/cut the footage as appropriate. Align important cuts with the music. Use professional pacing. Avoid unnecessary effects. Preserve the original 2160x3840 vertical format and 60 FPS. Select the best approximately 21-second section of the song for the footage."
+}

@@ -1,0 +1,949 @@
+{
+  "title": "Naruto vs Sasuke - Fragment",
+  "duration": 97.906939,
+  "frame_rate": 60.0,
+  "width": 2160,
+  "height": 3840,
+  "actions": [
+    {
+      "action": "create_project",
+      "parameters": {},
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "import_footage",
+      "parameters": {
+        "footage_path": "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "create_composition",
+      "parameters": {
+        "name": "Main_Edit",
+        "width": 2160,
+        "height": 3840,
+        "duration": 97.906939,
+        "frame_rate": 60.0,
+        "pixel_aspect": 1.0,
+        "background_color": [
+          0,
+          0,
+          0
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "Audio_Track",
+        "layer_type": "audio",
+        "kwargs": {
+          "source": "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3"
+        }
+      },
+      "start_time": 0.0,
+      "end_time": 97.906939
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_0",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 0.0,
+      "end_time": 4.8
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_0",
+        "timeline_start": 0.0,
+        "timeline_end": 4.8,
+        "source_start": 0.0
+      },
+      "start_time": 0.0,
+      "end_time": 4.8
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_0",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 0.0,
+      "end_time": 4.8
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_1",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 4.8,
+      "end_time": 9.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_1",
+        "timeline_start": 4.8,
+        "timeline_end": 9.5,
+        "source_start": 0.0
+      },
+      "start_time": 4.8,
+      "end_time": 9.5
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_1",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 4.8,
+      "end_time": 9.5
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_2",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 9.5,
+      "end_time": 14.2
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_2",
+        "timeline_start": 9.5,
+        "timeline_end": 14.2,
+        "source_start": 0.0
+      },
+      "start_time": 9.5,
+      "end_time": 14.2
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_2",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 9.5,
+      "end_time": 14.2
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_3",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 14.2,
+      "end_time": 18.8
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_3",
+        "timeline_start": 14.2,
+        "timeline_end": 18.8,
+        "source_start": 0.0
+      },
+      "start_time": 14.2,
+      "end_time": 18.8
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_3",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 14.2,
+      "end_time": 18.8
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_4",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 18.8,
+      "end_time": 23.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_4",
+        "timeline_start": 18.8,
+        "timeline_end": 23.5,
+        "source_start": 0.0
+      },
+      "start_time": 18.8,
+      "end_time": 23.5
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_4",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 18.8,
+      "end_time": 23.5
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_5",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 23.5,
+      "end_time": 28.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_5",
+        "timeline_start": 23.5,
+        "timeline_end": 28.0,
+        "source_start": 0.0
+      },
+      "start_time": 23.5,
+      "end_time": 28.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_5",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 23.5,
+      "end_time": 28.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_6",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 28.0,
+      "end_time": 32.8
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_6",
+        "timeline_start": 28.0,
+        "timeline_end": 32.8,
+        "source_start": 0.0
+      },
+      "start_time": 28.0,
+      "end_time": 32.8
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_6",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 28.0,
+      "end_time": 32.8
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_7",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 32.8,
+      "end_time": 37.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_7",
+        "timeline_start": 32.8,
+        "timeline_end": 37.5,
+        "source_start": 0.0
+      },
+      "start_time": 32.8,
+      "end_time": 37.5
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_7",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 32.8,
+      "end_time": 37.5
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_8",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 37.5,
+      "end_time": 42.2
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_8",
+        "timeline_start": 37.5,
+        "timeline_end": 42.2,
+        "source_start": 0.0
+      },
+      "start_time": 37.5,
+      "end_time": 42.2
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_8",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 37.5,
+      "end_time": 42.2
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_9",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 42.2,
+      "end_time": 47.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_9",
+        "timeline_start": 42.2,
+        "timeline_end": 47.0,
+        "source_start": 0.0
+      },
+      "start_time": 42.2,
+      "end_time": 47.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_9",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 42.2,
+      "end_time": 47.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_10",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 47.0,
+      "end_time": 52.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_10",
+        "timeline_start": 47.0,
+        "timeline_end": 52.0,
+        "source_start": 0.0
+      },
+      "start_time": 47.0,
+      "end_time": 52.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_10",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 47.0,
+      "end_time": 52.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_11",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 52.0,
+      "end_time": 57.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_11",
+        "timeline_start": 52.0,
+        "timeline_end": 57.0,
+        "source_start": 0.0
+      },
+      "start_time": 52.0,
+      "end_time": 57.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_11",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 52.0,
+      "end_time": 57.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_12",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 57.0,
+      "end_time": 62.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_12",
+        "timeline_start": 57.0,
+        "timeline_end": 62.0,
+        "source_start": 0.0
+      },
+      "start_time": 57.0,
+      "end_time": 62.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_12",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 57.0,
+      "end_time": 62.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_13",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 62.0,
+      "end_time": 67.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_13",
+        "timeline_start": 62.0,
+        "timeline_end": 67.0,
+        "source_start": 0.0
+      },
+      "start_time": 62.0,
+      "end_time": 67.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_13",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 62.0,
+      "end_time": 67.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_14",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 67.0,
+      "end_time": 72.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_14",
+        "timeline_start": 67.0,
+        "timeline_end": 72.0,
+        "source_start": 0.0
+      },
+      "start_time": 67.0,
+      "end_time": 72.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_14",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 67.0,
+      "end_time": 72.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_15",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 72.0,
+      "end_time": 77.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_15",
+        "timeline_start": 72.0,
+        "timeline_end": 77.0,
+        "source_start": 0.0
+      },
+      "start_time": 72.0,
+      "end_time": 77.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_15",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 72.0,
+      "end_time": 77.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_16",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 77.0,
+      "end_time": 82.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_16",
+        "timeline_start": 77.0,
+        "timeline_end": 82.0,
+        "source_start": 0.0
+      },
+      "start_time": 77.0,
+      "end_time": 82.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_16",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 77.0,
+      "end_time": 82.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_17",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 82.0,
+      "end_time": 87.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_17",
+        "timeline_start": 82.0,
+        "timeline_end": 87.0,
+        "source_start": 0.0
+      },
+      "start_time": 82.0,
+      "end_time": 87.0
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_17",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 82.0,
+      "end_time": 87.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_18",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 87.0,
+      "end_time": 92.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_18",
+        "timeline_start": 87.0,
+        "timeline_end": 92.5,
+        "source_start": 0.0
+      },
+      "start_time": 87.0,
+      "end_time": 92.5
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_18",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 87.0,
+      "end_time": 92.5
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_19",
+        "layer_type": "video",
+        "kwargs": {}
+      },
+      "start_time": 92.5,
+      "end_time": 97.906939
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_19",
+        "timeline_start": 92.5,
+        "timeline_end": 97.906939,
+        "source_start": 0.0
+      },
+      "start_time": 92.5,
+      "end_time": 97.906939
+    },
+    {
+      "action": "set_transform",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "clip_19",
+        "properties": {
+          "scale": [
+            200,
+            200
+          ],
+          "position": [
+            1080,
+            1920
+          ]
+        }
+      },
+      "start_time": 92.5,
+      "end_time": 97.906939
+    },
+    {
+      "action": "add_adjustment_layer",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "Color_Grade"
+      },
+      "start_time": 0.0,
+      "end_time": 97.906939
+    },
+    {
+      "action": "add_effect",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "Color_Grade",
+        "effect_name": "Curves",
+        "match_name": "ADBE CurvesCustom"
+      },
+      "start_time": 0.0,
+      "end_time": 97.906939
+    },
+    {
+      "action": "add_effect",
+      "parameters": {
+        "composition_name": "Main_Edit",
+        "layer_name": "Color_Grade",
+        "effect_name": "Glow",
+        "match_name": "ADBE Glo2"
+      },
+      "start_time": 0.0,
+      "end_time": 97.906939
+    }
+  ],
+  "source_files": [
+    "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3",
+    "clip_0",
+    "clip_1",
+    "clip_2",
+    "clip_3",
+    "clip_4",
+    "clip_5",
+    "clip_6",
+    "clip_7",
+    "clip_8",
+    "clip_9",
+    "clip_10",
+    "clip_11",
+    "clip_12",
+    "clip_13",
+    "clip_14",
+    "clip_15",
+    "clip_16",
+    "clip_17",
+    "clip_18",
+    "clip_19"
+  ],
+  "notes": "Dynamic vertical 9:16 AMV edit synchronizing high-impact Naruto vs Sasuke combat clips with the slowed phonk rhythm and bass hits across 97.9s."
+}

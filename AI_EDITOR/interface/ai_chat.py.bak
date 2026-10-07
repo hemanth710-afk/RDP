@@ -1,0 +1,112 @@
+"""AI chat bridge for AI_EDITOR.
+
+Connects AIChatSession to the existing model/provider system.
+
+This module does not start After Effects or perform editing.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from config.model_config import ModelConfig
+from models.provider_factory import create_provider
+
+from .chat import AIChatSession, ChatError
+
+
+class AIChatProviderError(RuntimeError):
+    """Raised when an AI chat request cannot be completed."""
+
+
+class AIChatProvider:
+    """Connect an AIChatSession to the configured model provider."""
+
+    def __init__(
+        self,
+        config: Optional[ModelConfig] = None,
+        provider: Any = None,
+    ) -> None:
+        self.config = (
+            config
+            or ModelConfig.from_environment()
+        )
+
+        self.provider = (
+            provider
+            if provider is not None
+            else create_provider(self.config)
+        )
+
+    def send(
+        self,
+        session: AIChatSession,
+        *,
+        include_script: bool = True,
+    ) -> str:
+        """Send the current chat/PDF context to the configured AI."""
+
+        if not isinstance(
+            session,
+            AIChatSession,
+        ):
+            raise TypeError(
+                "session must be an AIChatSession."
+            )
+
+        context = session.build_context(
+            include_script=include_script,
+        )
+
+        if not context.strip():
+            raise ChatError(
+                "There is no chat message or PDF script to send."
+            )
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are the AI assistant inside AI_EDITOR. "
+                    "Understand the user's editing request and "
+                    "uploaded editing script. Do not directly "
+                    "control After Effects from this response. "
+                    "Return useful editing instructions that can "
+                    "later be converted into a structured editing plan."
+                ),
+            },
+            {
+                "role": "user",
+                "content": context,
+            },
+        ]
+
+        try:
+            response = self.provider.generate(
+                messages,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+            )
+        except Exception as exc:
+            raise AIChatProviderError(
+                f"AI provider request failed: {exc}"
+            ) from exc
+
+        if not isinstance(
+            response,
+            str,
+        ):
+            response = str(response)
+
+        response = response.strip()
+
+        if not response:
+            raise AIChatProviderError(
+                "AI provider returned an empty response."
+            )
+
+        session.add_assistant_message(
+            response
+        )
+
+        return response

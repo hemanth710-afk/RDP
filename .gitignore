@@ -1,0 +1,23 @@
+
+AI_EDITOR/.env
+
+# Python environment and caches
+AI_EDITOR/.venv/
+**/__pycache__/
+*.pyc
+
+# Local secrets
+AI_EDITOR/.env
+
+# Large media / generated working files
+AI_EDITOR/footage/
+AI_EDITOR/temp_working_footage/
+AI_EDITOR/scratch/ffmpeg-bin/
+AI_EDITOR/scratch/ffmpeg.zip
+AI_EDITOR/scratch/human_editor_test/media/
+AI_EDITOR/scratch/human_editor_test/source_clips/
+AI_EDITOR/scratch/human_editor_test/outputs/
+AI_EDITOR/scratch/real_amv/sources/
+AI_EDITOR/scratch/render_test.mov
+AI_EDITOR/scratch/trimmed_amv.mp4
+

@@ -1,0 +1,452 @@
+{
+  "title": "Sasuke vs Naruto Fragment AMV",
+  "duration": 21.0,
+  "frame_rate": 60.0,
+  "width": 2160,
+  "height": 3840,
+  "actions": [
+    {
+      "action": "create_project",
+      "parameters": {},
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "import_footage",
+      "parameters": {
+        "footage_path": "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "import_footage",
+      "parameters": {
+        "footage_path": "C:\\\\Users\\\\L.Thirumala Teja\\\\Downloads\\\\Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "create_composition",
+      "parameters": {
+        "name": "MainComp",
+        "width": 2160,
+        "height": 3840,
+        "duration": 21.0,
+        "frame_rate": 60.0,
+        "pixel_aspect": 1.0,
+        "background_color": [
+          0,
+          0,
+          0
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "Audio_Track",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "fragment - slowed - slxughter.mp3"
+        }
+      },
+      "start_time": 0.0,
+      "end_time": 21.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_1",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 0.0,
+      "end_time": 2.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_1",
+        "timeline_start": 0.0,
+        "timeline_end": 2.5,
+        "source_start": 0.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_2",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 2.5,
+      "end_time": 4.2
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_2",
+        "timeline_start": 2.5,
+        "timeline_end": 4.2,
+        "source_start": 5.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_2",
+        "property_name": "scale",
+        "time": 2.5,
+        "value": [
+          115,
+          115,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_2",
+        "property_name": "scale",
+        "time": 2.8,
+        "value": [
+          100,
+          100,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_3",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 4.2,
+      "end_time": 6.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_3",
+        "timeline_start": 4.2,
+        "timeline_end": 6.0,
+        "source_start": 10.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_3",
+        "property_name": "scale",
+        "time": 4.2,
+        "value": [
+          120,
+          120,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_3",
+        "property_name": "scale",
+        "time": 4.45,
+        "value": [
+          100,
+          100,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_4",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 6.0,
+      "end_time": 8.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_4",
+        "timeline_start": 6.0,
+        "timeline_end": 8.5,
+        "source_start": 2.5
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_5",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 8.5,
+      "end_time": 11.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_5",
+        "timeline_start": 8.5,
+        "timeline_end": 11.0,
+        "source_start": 12.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_5",
+        "property_name": "scale",
+        "time": 8.5,
+        "value": [
+          115,
+          115,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_5",
+        "property_name": "scale",
+        "time": 8.8,
+        "value": [
+          100,
+          100,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_6",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 11.0,
+      "end_time": 13.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_6",
+        "timeline_start": 11.0,
+        "timeline_end": 13.5,
+        "source_start": 6.5
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_6",
+        "property_name": "scale",
+        "time": 11.0,
+        "value": [
+          120,
+          120,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_6",
+        "property_name": "scale",
+        "time": 11.25,
+        "value": [
+          100,
+          100,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_7",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 13.5,
+      "end_time": 16.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_7",
+        "timeline_start": 13.5,
+        "timeline_end": 16.0,
+        "source_start": 14.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_8",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 16.0,
+      "end_time": 18.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_8",
+        "timeline_start": 16.0,
+        "timeline_end": 18.5,
+        "source_start": 8.5
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_8",
+        "property_name": "scale",
+        "time": 16.0,
+        "value": [
+          115,
+          115,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_8",
+        "property_name": "scale",
+        "time": 16.3,
+        "value": [
+          100,
+          100,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_9",
+        "layer_type": "footage",
+        "kwargs": {
+          "footage_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 18.5,
+      "end_time": 21.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "MainComp",
+        "layer_name": "sasuke_cut_9",
+        "timeline_start": 18.5,
+        "timeline_end": 21.0,
+        "source_start": 18.5
+      },
+      "start_time": null,
+      "end_time": null
+    }
+  ],
+  "source_files": [
+    "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3",
+    "sasuke_fight"
+  ],
+  "notes": "Created a high-energy, fast-paced AMV edit matching the phonk beat. The 21-second clip is cut into 9 distinct segments to build tension, deliver impact, and maintain visual variety. Scale pumps are added on major beat drops (2.5s, 4.2s, 8.5s, 11.0s, 16.0s) to emphasize the aggressive rhythm."
+}

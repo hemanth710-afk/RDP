@@ -1,0 +1,22 @@
+{
+  "project_id": "ecca922b-668b-4ac7-85ae-595f1a529e4b",
+  "phase": "completed",
+  "script_path": "scratch\\amv_test_script.json",
+  "plan_path": "scratch\\amv_test_state\\editing_plan.json",
+  "plan_version": 0,
+  "total_actions": 33,
+  "completed_action_index": 32,
+  "failed_action_index": -1,
+  "failed_action_error": "Action 9 ('set_keyframe') failed: Unsupported keyframe property: Scale",
+  "retry_count": 0,
+  "source_analysis": {},
+  "timestamps": {
+    "phase_initialized": 1786643690.7573814,
+    "phase_script_loaded": 1786649710.007752,
+    "phase_plan_generated": 1786647705.4430768,
+    "phase_plan_approved": 1786649710.0252283,
+    "phase_executing": 1786649710.0317106,
+    "phase_failed": 1786649669.501205,
+    "phase_completed": 1786650156.33504
+  }
+}

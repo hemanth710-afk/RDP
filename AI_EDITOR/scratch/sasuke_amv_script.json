@@ -1,0 +1,21 @@
+{
+  "title": "Sasuke 21s AMV Test",
+  "song_path": "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3",
+  "clips": [
+    {
+      "path": "C:\\Users\\L.Thirumala Teja\\Downloads\\Sasuke_Uchiha_Premium_21s_4K60_FINAL.mp4",
+      "clip_id": "sasuke_4k",
+      "character": "Sasuke Uchiha",
+      "scene": "Various 4K action and emotional scenes",
+      "start_time": 0.0,
+      "end_time": 21.0
+    }
+  ],
+  "target_duration": 21.0,
+  "mood": "Action, Intense, Emotional",
+  "editing_style": "Professional, clean, well-paced cuts synchronized with the music.",
+  "special_requirements": "Analyze the song for beat timing, intensity, and natural impact points. Select the best approximately 21-second section of the song. Cut the 21-second video into a dynamic sequence aligned with the music. Preserve original 2160x3840 format at 60 FPS. Ensure deterministic actions only.",
+  "frame_rate": 60.0,
+  "width": 2160,
+  "height": 3840
+}

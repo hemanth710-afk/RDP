@@ -1,0 +1,400 @@
+{
+  "title": "Naruto Vs Sasuke Human Editor Test",
+  "duration": 21.0,
+  "frame_rate": 60.0,
+  "width": 2160,
+  "height": 3840,
+  "actions": [
+    {
+      "action": "create_project",
+      "parameters": {},
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "import_footage",
+      "parameters": {
+        "footage_path": "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "import_footage",
+      "parameters": {
+        "footage_path": "C:\\Users\\L.Thirumala Teja\\Downloads\\Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "create_composition",
+      "parameters": {
+        "name": "Main_Comp",
+        "width": 2160,
+        "height": 3840,
+        "duration": 21.0,
+        "frame_rate": 60.0,
+        "pixel_aspect": 1.0,
+        "background_color": [
+          0,
+          0,
+          0
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "fragment - slowed - slxughter.mp3",
+        "layer_type": "footage",
+        "kwargs": {}
+      },
+      "start_time": 0.0,
+      "end_time": 21.0
+    },
+    {
+      "action": "add_null",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Camera_Control"
+      },
+      "start_time": 0.0,
+      "end_time": 21.0
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_1_Intro",
+        "layer_type": "footage",
+        "kwargs": {
+          "source_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 0.0,
+      "end_time": 4.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_1_Intro",
+        "timeline_start": 0.0,
+        "timeline_end": 4.0,
+        "source_start": 0.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_2_Build",
+        "layer_type": "footage",
+        "kwargs": {
+          "source_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 4.0,
+      "end_time": 7.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_2_Build",
+        "timeline_start": 4.0,
+        "timeline_end": 7.5,
+        "source_start": 4.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_3_Action",
+        "layer_type": "footage",
+        "kwargs": {
+          "source_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 7.5,
+      "end_time": 11.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_3_Action",
+        "timeline_start": 7.5,
+        "timeline_end": 11.0,
+        "source_start": 11.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_4_Climax_Build",
+        "layer_type": "footage",
+        "kwargs": {
+          "source_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 11.0,
+      "end_time": 15.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_4_Climax_Build",
+        "timeline_start": 11.0,
+        "timeline_end": 15.0,
+        "source_start": 7.5
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_5_Climax_Hit",
+        "layer_type": "footage",
+        "kwargs": {
+          "source_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 15.0,
+      "end_time": 18.5
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_5_Climax_Hit",
+        "timeline_start": 15.0,
+        "timeline_end": 18.5,
+        "source_start": 14.5
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_layer",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_6_Outro",
+        "layer_type": "footage",
+        "kwargs": {
+          "source_name": "Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+        }
+      },
+      "start_time": 18.5,
+      "end_time": 21.0
+    },
+    {
+      "action": "cut",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Shot_6_Outro",
+        "timeline_start": 18.5,
+        "timeline_end": 21.0,
+        "source_start": 18.0
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_parent",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "child_layer_name": "Shot_1_Intro",
+        "parent_layer_name": "Camera_Control"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_parent",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "child_layer_name": "Shot_2_Build",
+        "parent_layer_name": "Camera_Control"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_parent",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "child_layer_name": "Shot_3_Action",
+        "parent_layer_name": "Camera_Control"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_parent",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "child_layer_name": "Shot_4_Climax_Build",
+        "parent_layer_name": "Camera_Control"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_parent",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "child_layer_name": "Shot_5_Climax_Hit",
+        "parent_layer_name": "Camera_Control"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_parent",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "child_layer_name": "Shot_6_Outro",
+        "parent_layer_name": "Camera_Control"
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Camera_Control",
+        "property_name": "Scale",
+        "time": 4.0,
+        "value": [
+          115,
+          115,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Camera_Control",
+        "property_name": "Scale",
+        "time": 4.1,
+        "value": [
+          100,
+          100,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Camera_Control",
+        "property_name": "Scale",
+        "time": 11.0,
+        "value": [
+          120,
+          120,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Camera_Control",
+        "property_name": "Scale",
+        "time": 11.15,
+        "value": [
+          100,
+          100,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Camera_Control",
+        "property_name": "Scale",
+        "time": 15.0,
+        "value": [
+          125,
+          125,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "set_keyframe",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Camera_Control",
+        "property_name": "Scale",
+        "time": 15.2,
+        "value": [
+          100,
+          100,
+          100
+        ]
+      },
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "action": "add_adjustment_layer",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Color_Grading"
+      },
+      "start_time": 0.0,
+      "end_time": 21.0
+    },
+    {
+      "action": "add_effect",
+      "parameters": {
+        "composition_name": "Main_Comp",
+        "layer_name": "Color_Grading",
+        "effect_name": "Curves",
+        "match_name": "ADBE CurvesCustom"
+      },
+      "start_time": null,
+      "end_time": null
+    }
+  ],
+  "source_files": [
+    "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3",
+    "C:\\Users\\L.Thirumala Teja\\Downloads\\Naruto Vs Sasuke-2x-RIFE-RIFE4.0-120fps.mp4"
+  ],
+  "notes": "Designed a high-intensity vertical AMV utilizing the 120fps source footage. The timeline is structured with dynamic cuts matching the slowed beat structure of the song, featuring camera impact zooms on major beat drops (4.0s, 11.0s, 15.0s) and a cinematic color grade adjustment layer."
+}

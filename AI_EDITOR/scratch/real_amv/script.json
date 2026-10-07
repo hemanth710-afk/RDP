@@ -1,0 +1,133 @@
+{
+  "title": "Naruto vs Sasuke - Fragment",
+  "song_path": "C:\\Users\\L.Thirumala Teja\\Downloads\\fragment - slowed - slxughter.mp3",
+  "target_duration": 97.906939,
+  "width": 2160,
+  "height": 3840,
+  "frame_rate": 60.0,
+  "mood": "Intense, action-packed, dramatic, slowed phonk, buildup to explosive climax",
+  "editing_style": "Fast-paced action cuts with the beat, cinematic slowing for drops, dynamic zooms, vertical aspect ratio crop focusing on action",
+  "special_requirements": "Use the strongest impact moments for drops. Sync hits with percussion and bass. Ensure the vertical 2160x3840 format keeps subjects centered.",
+  "clips": [
+    {
+      "id": "clip_01",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_01.mp4",
+      "duration": 2.316992,
+      "description": "Extracted clip clip_01.mp4"
+    },
+    {
+      "id": "clip_02",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_02.mp4",
+      "duration": 4.016667,
+      "description": "Extracted clip clip_02.mp4"
+    },
+    {
+      "id": "clip_03",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_03.mp4",
+      "duration": 4.025,
+      "description": "Extracted clip clip_03.mp4"
+    },
+    {
+      "id": "clip_04",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_04.mp4",
+      "duration": 6.533984,
+      "description": "Extracted clip clip_04.mp4"
+    },
+    {
+      "id": "clip_05",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_05.mp4",
+      "duration": 2.516016,
+      "description": "Extracted clip clip_05.mp4"
+    },
+    {
+      "id": "clip_06",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_06.mp4",
+      "duration": 5.016667,
+      "description": "Extracted clip clip_06.mp4"
+    },
+    {
+      "id": "clip_07",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_07.mp4",
+      "duration": 5.025,
+      "description": "Extracted clip clip_07.mp4"
+    },
+    {
+      "id": "clip_08",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_08.mp4",
+      "duration": 6.016992,
+      "description": "Extracted clip clip_08.mp4"
+    },
+    {
+      "id": "clip_09",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_09.mp4",
+      "duration": 3.033008,
+      "description": "Extracted clip clip_09.mp4"
+    },
+    {
+      "id": "clip_10",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_10.mp4",
+      "duration": 4.033008,
+      "description": "Extracted clip clip_10.mp4"
+    },
+    {
+      "id": "clip_11",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_11.mp4",
+      "duration": 6.041016,
+      "description": "Extracted clip clip_11.mp4"
+    },
+    {
+      "id": "clip_12",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_12.mp4",
+      "duration": 5.033984,
+      "description": "Extracted clip clip_12.mp4"
+    },
+    {
+      "id": "clip_13",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_13.mp4",
+      "duration": 6.041992,
+      "description": "Extracted clip clip_13.mp4"
+    },
+    {
+      "id": "clip_14",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_14.mp4",
+      "duration": 5.016992,
+      "description": "Extracted clip clip_14.mp4"
+    },
+    {
+      "id": "clip_15",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_15.mp4",
+      "duration": 4.041992,
+      "description": "Extracted clip clip_15.mp4"
+    },
+    {
+      "id": "clip_16",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_16.mp4",
+      "duration": 5.016667,
+      "description": "Extracted clip clip_16.mp4"
+    },
+    {
+      "id": "clip_17",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_17.mp4",
+      "duration": 5.016667,
+      "description": "Extracted clip clip_17.mp4"
+    },
+    {
+      "id": "clip_18",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_18.mp4",
+      "duration": 6.575,
+      "description": "Extracted clip clip_18.mp4"
+    },
+    {
+      "id": "clip_19",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_19.mp4",
+      "duration": 4.483984,
+      "description": "Extracted clip clip_19.mp4"
+    },
+    {
+      "id": "clip_20",
+      "path": "C:\\Users\\L.Thirumala Teja\\AI_EDITOR\\scratch\\real_amv\\sources\\clip_20.mp4",
+      "duration": 8.033008,
+      "description": "Extracted clip clip_20.mp4"
+    }
+  ]
+}

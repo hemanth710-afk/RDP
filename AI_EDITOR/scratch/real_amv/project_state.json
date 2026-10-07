@@ -1,0 +1,18 @@
+{
+  "project_id": "a4875909-5300-4851-9f32-443dd1552b4c",
+  "phase": "plan_generated",
+  "script_path": "scratch\\real_amv\\script.json",
+  "plan_path": "scratch\\real_amv\\editing_plan.json",
+  "plan_version": 0,
+  "total_actions": 67,
+  "completed_action_index": -1,
+  "failed_action_index": -1,
+  "failed_action_error": "",
+  "retry_count": 0,
+  "source_analysis": {},
+  "timestamps": {
+    "phase_initialized": 1786735365.6035647,
+    "phase_script_loaded": 1786735615.62649,
+    "phase_plan_generated": 1786735658.7163508
+  }
+}
