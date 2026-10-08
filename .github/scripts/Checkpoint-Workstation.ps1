@@ -10,12 +10,20 @@ $dirs = @(
     "$statePath\AppConfigs",
     "$statePath\Checkpoints",
     "$statePath\Reports",
-    "$statePath\WindowsSettings"
+    "$statePath\WindowsSettings",
+    "$statePath\UserData"
 )
 foreach ($d in $dirs) { if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } }
 
 function Invoke-Checkpoint {
     Write-Host "[$(Get-Date)] Starting workstation checkpoint..."
+
+    # Determine RDP user profile dynamically
+    $rdpProfilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue | Where-Object { $_.ProfileImagePath -match "\\RDP$" }).ProfileImagePath
+    if (-not $rdpProfilePath) { $rdpProfilePath = "C:\Users\RDP" }
+    
+    $rdpAppData = "$rdpProfilePath\AppData\Roaming"
+    $rdpLocalAppData = "$rdpProfilePath\AppData\Local"
 
     # 1. Machine Inventory
     $os = Get-CimInstance Win32_OperatingSystem
@@ -36,11 +44,8 @@ function Invoke-Checkpoint {
 
     # 2. Installed Apps (Registry & Winget)
     Write-Host "Inventorying applications..."
-    
-    # We will prefer winget list if available
-    $wingetApps = @()
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $wingetRaw = & winget export -o "$statePath\Apps\Manifests\winget-export.json" --accept-source-agreements 2>&1
+        & winget export -o "$statePath\Apps\Manifests\winget-export.json" --accept-source-agreements 2>&1 | Out-Null
     }
 
     $uninstallKeys = @(
@@ -52,11 +57,16 @@ function Invoke-Checkpoint {
     
     $appManifest = @()
     foreach ($app in $installedApps) {
+        $category = "MANUAL ACTIVATION/LOGIN REQUIRED"
+        if ($app.DisplayName -match "Visual Studio|Python|Git|Node.js") { $category = "AUTO-RESTORABLE" }
+        elseif ($app.DisplayName -match "Office|Adobe") { $category = "NOT AUTOMATICALLY RESTORABLE" }
+        
         $appManifest += @{
             Application = $app.DisplayName
             Publisher = $app.Publisher
             Version = $app.DisplayVersion
             InstallLocation = $app.InstallLocation
+            RestoreCategory = $category
         }
     }
     $appManifest | ConvertTo-Json -Depth 5 | Set-Content "$statePath\Apps\Inventory\installed-apps.json"
@@ -73,34 +83,63 @@ function Invoke-Checkpoint {
 
     # 4. App Configurations
     Write-Host "Checkpointing configurations..."
-    $appData = $env:APPDATA
-    $localAppData = $env:LOCALAPPDATA
     
-    $configsToBackup = @(
-        @{ Name = "Git"; Path = "$env:USERPROFILE\.gitconfig" },
-        @{ Name = "SSH"; Path = "$env:USERPROFILE\.ssh" },
-        @{ Name = "VSCode"; Path = "$appData\Code\User\settings.json" },
-        @{ Name = "WindowsTerminal"; Path = "$localAppData\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json" }
-    )
+    # Safely backup SSH without private keys
+    $sshDest = "$statePath\AppConfigs\SSH"
+    if (-not (Test-Path $sshDest)) { New-Item -ItemType Directory -Path $sshDest -Force | Out-Null }
+    if (Test-Path "$rdpProfilePath\.ssh\config") { Copy-Item "$rdpProfilePath\.ssh\config" -Destination $sshDest -Force -ErrorAction SilentlyContinue }
+    if (Test-Path "$rdpProfilePath\.ssh\known_hosts") { Copy-Item "$rdpProfilePath\.ssh\known_hosts" -Destination $sshDest -Force -ErrorAction SilentlyContinue }
 
+    # Git
+    $gitDest = "$statePath\AppConfigs\Git"
+    if (-not (Test-Path $gitDest)) { New-Item -ItemType Directory -Path $gitDest -Force | Out-Null }
+    if (Test-Path "$rdpProfilePath\.gitconfig") { Copy-Item "$rdpProfilePath\.gitconfig" -Destination $gitDest -Force -ErrorAction SilentlyContinue }
+
+    # VSCode & Windows Terminal
+    $configsToBackup = @(
+        @{ Name = "VSCode"; Path = "$rdpAppData\Code\User\settings.json" },
+        @{ Name = "WindowsTerminal"; Path = "$rdpLocalAppData\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json" }
+    )
     foreach ($cfg in $configsToBackup) {
         if (Test-Path $cfg.Path) {
             $dest = "$statePath\AppConfigs\$($cfg.Name)"
             if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-            Copy-Item -Path $cfg.Path -Destination $dest -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path $cfg.Path -Destination $dest -Force -ErrorAction SilentlyContinue
         }
     }
 
-    # 5. Browser Configurations (Safe Metadata Only)
+    # 5. Browser Configurations (Safe Metadata Only - Bookmarks & Preferences)
     $browsers = @(
-        @{ Name = "Chrome"; Path = "$localAppData\Google\Chrome\User Data\Default\Bookmarks" },
-        @{ Name = "Edge"; Path = "$localAppData\Microsoft\Edge\User Data\Default\Bookmarks" }
+        @{ Name = "Chrome"; Path = "$rdpLocalAppData\Google\Chrome\User Data\Default"; Files = @("Bookmarks", "Preferences") },
+        @{ Name = "Edge"; Path = "$rdpLocalAppData\Microsoft\Edge\User Data\Default"; Files = @("Bookmarks", "Preferences") },
+        @{ Name = "Firefox"; Path = "$rdpAppData\Mozilla\Firefox\Profiles"; IsProfile = $true }
     )
     foreach ($b in $browsers) {
-        if (Test-Path $b.Path) {
-            $dest = "$statePath\AppConfigs\$($b.Name)"
-            if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-            Copy-Item -Path $b.Path -Destination $dest -Force -ErrorAction SilentlyContinue
+        $dest = "$statePath\AppConfigs\$($b.Name)"
+        if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
+        
+        if ($b.IsProfile -eq $true -and (Test-Path $b.Path)) {
+            $ffProfile = Get-ChildItem $b.Path -Directory | Where-Object Name -match "default-release" | Select-Object -First 1
+            if ($ffProfile) {
+                if (Test-Path "$($ffProfile.FullName)\places.sqlite") { Copy-Item "$($ffProfile.FullName)\places.sqlite" -Destination $dest -Force -ErrorAction SilentlyContinue }
+            }
+        } elseif (Test-Path $b.Path) {
+            foreach ($file in $b.Files) {
+                if (Test-Path "$($b.Path)\$file") { Copy-Item "$($b.Path)\$file" -Destination $dest -Force -ErrorAction SilentlyContinue }
+            }
+        }
+    }
+
+    # 6. User Workspace Folders (Incremental Backup via Robocopy)
+    Write-Host "Checkpointing User Workspace incrementally..."
+    $workspaceFolders = @("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos")
+    foreach ($folder in $workspaceFolders) {
+        $sourceDir = "$rdpProfilePath\$folder"
+        $destDir = "$statePath\UserData\$folder"
+        if (Test-Path $sourceDir) {
+            if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+            # Robocopy incremental sync (MIR), skip permissions (/COPY:DT), 1 retry, wait 1 sec
+            & robocopy $sourceDir $destDir /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
         }
     }
 
