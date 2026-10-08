@@ -1,114 +1,224 @@
-name: RDP
+name: RDP and Persistent Storage
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
+  secure-rdp-and-storage:
     runs-on: windows-latest
     timeout-minutes: 3600
 
     steps:
-      - name: Configure Core RDP Settings
+      - name: Discover Machine Resources
         run: |
-          # Enable Remote Desktop and disable Network Level Authentication (if needed)
+          $os = Get-CimInstance Win32_OperatingSystem
+          $cs = Get-CimInstance Win32_ComputerSystem
+          $proc = Get-CimInstance Win32_Processor
+          $cDrive = Get-PSDrive C
+
+          Write-Host "=== CURRENT MACHINE RESOURCE REPORT ==="
+          Write-Host "OS: $($os.Caption)"
+          Write-Host "Build: $($os.BuildNumber)"
+          Write-Host "Hostname: $($cs.Name)"
+          Write-Host "CPU: $($proc.Name)"
+          Write-Host "Physical Cores: $($proc.NumberOfCores)"
+          Write-Host "Logical Processors: $($proc.NumberOfLogicalProcessors)"
+          Write-Host "Total RAM: $([math]::Round($os.TotalVisibleMemorySize / 1MB, 2)) GB"
+          Write-Host "Available RAM: $([math]::Round($os.FreePhysicalMemory / 1MB, 2)) GB"
+          Write-Host "C: Total: $([math]::Round(($cDrive.Used + $cDrive.Free) / 1GB, 2)) GB"
+          Write-Host "C: Free: $([math]::Round($cDrive.Free / 1GB, 2)) GB"
+          Write-Host "========================================"
+
+      - name: Configure Secure RDP Settings
+        run: |
+          # Enable Remote Desktop
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
                              -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "SecurityLayer" -Value 0 -Force
 
-          # Remove any existing rule with the same name to avoid duplication
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          
-          # For testing, allow any incoming connection on port 3389
+          # Enable Network Level Authentication (NLA) and TLS Layer 2
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "UserAuthentication" -Value 1 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
+                             -Name "SecurityLayer" -Value 2 -Force
+
+          # Restrict firewall strictly to Tailscale CGNAT IP space (100.64.0.0/10) - NEVER open 3389 publicly
+          netsh advfirewall firewall delete rule name="RDP-Tailscale" 2>$null
           netsh advfirewall firewall add rule name="RDP-Tailscale" `
-            dir=in action=allow protocol=TCP localport=3389
+            dir=in action=allow protocol=TCP localport=3389 remoteip=100.64.0.0/10
 
-          # (Optional) Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
 
-      - name: Create RDP User with Secure Password
+      - name: Create / Configure RDP User Securely
         run: |
-          Add-Type -AssemblyName System.Security
-          $charSet = @{
-              Upper   = [char[]](65..90)      # A-Z
-              Lower   = [char[]](97..122)     # a-z
-              Number  = [char[]](48..57)      # 0-9
-              Special = ([char[]](33..47) + [char[]](58..64) +
-                         [char[]](91..96) + [char[]](123..126)) # Special characters
+          # Retrieve or generate RDP password securely without printing to logs
+          $password = "${{ secrets.RDP_PASSWORD }}"
+          if (-not $password) {
+              Add-Type -AssemblyName System.Security
+              $charSet = @{
+                  Upper   = [char[]](65..90)
+                  Lower   = [char[]](97..122)
+                  Number  = [char[]](48..57)
+                  Special = [char[]](33..38) + [char[]](42..46)
+              }
+              $rawPassword = @()
+              $rawPassword += $charSet.Upper | Get-Random -Count 4
+              $rawPassword += $charSet.Lower | Get-Random -Count 4
+              $rawPassword += $charSet.Number | Get-Random -Count 4
+              $rawPassword += $charSet.Special | Get-Random -Count 4
+              $password = -join ($rawPassword | Sort-Object { Get-Random })
           }
-          $rawPassword = @()
-          $rawPassword += $charSet.Upper | Get-Random -Count 4
-          $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
-          $rawPassword += $charSet.Special | Get-Random -Count 4
-          $password = -join ($rawPassword | Sort-Object { Get-Random })
+
+          # Mask password from all workflow output logs
+          Write-Output "::add-mask::$password"
+
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-          
-          echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
-          
-          if (-not (Get-LocalUser -Name "RDP")) {
-              Write-Error "User creation failed"
-              exit 1
+          if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
+              New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
+          } else {
+              Set-LocalUser -Name "RDP" -Password $securePass
           }
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP" -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP" -ErrorAction SilentlyContinue
+          
+          # Pass securely into GITHUB_ENV as a masked variable
+          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+          Write-Host "RDP user configured securely (credential is masked)."
 
       - name: Install Tailscale
         run: |
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
-          
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
           Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
           Remove-Item $installerPath -Force
 
-      - name: Establish Tailscale Connection
+      - name: Connect Tailscale
         run: |
-          # Bring up Tailscale with the provided auth key and set a unique hostname
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          # Bring up Tailscale and grant operator permission to RDP user
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+            --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
+            --hostname=gh-runner-$env:GITHUB_RUN_ID `
+            --operator=RDP
           
-          # Wait for Tailscale to assign an IP
           $tsIP = $null
           $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
+          while (-not $tsIP -and $retries -lt 12) {
               $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
               Start-Sleep -Seconds 5
               $retries++
           }
-          
           if (-not $tsIP) {
               Write-Error "Tailscale IP not assigned. Exiting."
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-      
-      - name: Verify RDP Accessibility
+          Write-Host "Runner Tailscale IP: $tsIP"
+
+      - name: Test Network and SMB Connectivity to Machine A
         run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          
-          # Test connectivity using Test-NetConnection against the Tailscale IP on port 3389
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
+          $storageHost = "100.93.61.9"
+          Write-Host "Testing ping to Storage Host $storageHost..."
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" ping --c 3 $storageHost
+
+          Write-Host "Testing SMB TCP port 445 on $storageHost..."
+          $portTest = Test-NetConnection $storageHost -Port 445
+          if (-not $portTest.TcpTestSucceeded) {
+              Write-Error "TCP port 445 to Storage Host failed! Ensure Machine A is powered on and Tailscale is running."
               exit 1
           }
-          Write-Host "TCP connectivity successful!"
+          Write-Host "TCP port 445 connection successful!"
 
-      - name: Maintain Connection
+      - name: Mount Persistent Storage (P:) and Configure Interactive Logon
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
+          $storageUser = "${{ secrets.STORAGE_USER }}"
+          if (-not $storageUser) { $storageUser = "StorageUser" }
+          $storagePass = "${{ secrets.STORAGE_PASSWORD }}"
+
+          if (-not $storagePass) {
+              Write-Error "STORAGE_PASSWORD secret is missing. Please set STORAGE_PASSWORD in GitHub Repository Secrets."
+              exit 1
+          }
+          Write-Output "::add-mask::$storagePass"
+
+          $share = "\\100.93.61.9\PersistentStorage"
+
+          # 1. Mount P: drive in current runner session
+          Write-Host "Connecting SMB share $share..."
+          net use P: $share "/user:$storageUser" "$storagePass" /persistent:yes
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Failed to map P: drive via net use."
+              exit 1
+          }
+          Write-Host "P: drive successfully mapped to $share"
+
+          # 2. Configure per-user automatic drive mapping for interactive RDP desktop sessions
+          $startupDir = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp"
+          $logonScript = @"
+@echo off
+net use P: $share /user:$storageUser $storagePass /persistent:yes >nul 2>&1
+"@
+          Set-Content -Path "$startupDir\MapPDrive.bat" -Value $logonScript -Encoding ASCII
+          Write-Host "Configured interactive desktop logon mapping script in All Users Startup."
+
+      - name: Verify Persistent Directories on P:
+        run: |
+          $requiredDirs = @("AI_EDITOR", "Videos", "Assets", "Projects", "Backups")
+          $missing = @()
+          foreach ($dir in $requiredDirs) {
+              $path = "P:\$dir"
+              if (Test-Path $path) {
+                  Write-Host "Verified directory: $path"
+              } else {
+                  Write-Host "MISSING directory: $path" -ForegroundColor Red
+                  $missing += $path
+              }
+          }
+          if ($missing.Count -gt 0) {
+              Write-Error "One or more required directories missing on P: ($($missing -join ', '))"
+              exit 1
+          }
+          Write-Host "All persistent directories successfully verified on physical USB storage!"
+
+      - name: Storage Operations Proof & Persistence Test
+        run: |
+          # Phase 7 & 8: Temporary read / write / modify / rename verification
+          $testFile = "P:\ANTIGRAVITY_PENDRIVE_TEST.txt"
+          Set-Content -Path $testFile -Value "DIRECT_USB_STORAGE_TEST"
+          $readBack = Get-Content -Path $testFile
+          if ($readBack -ne "DIRECT_USB_STORAGE_TEST") {
+              Write-Error "Read/write test failed!"
+              exit 1
+          }
+          Write-Host "Direct write and read verified on P:"
+
+          # Rename test
+          $renamedFile = "P:\ANTIGRAVITY_PENDRIVE_TEST_RENAMED.txt"
+          Rename-Item -Path $testFile -NewName "ANTIGRAVITY_PENDRIVE_TEST_RENAMED.txt"
+          if (-not (Test-Path $renamedFile)) {
+              Write-Error "Rename test failed!"
+              exit 1
+          }
+          Write-Host "Rename verified on P:"
+          Remove-Item -Path $renamedFile -Force
+          Write-Host "Temporary test files cleaned up successfully."
+
+          # Phase 17: Persistence Test Marker
+          $persistFile = "P:\Projects\PersistenceTest.txt"
+          Set-Content -Path $persistFile -Value "RUN_1_PERSISTENCE_TEST"
+          Write-Host "Persistence marker created at $persistFile"
+
+      - name: Maintain RDP Session
+        run: |
+          Write-Host "`n=== SECURE RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Port: 3389 (Accessible strictly over Tailscale)"
           Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
-          Write-Host "==================`n"
-          
-          # Keep runner active indefinitely (or until manually cancelled)
+          Write-Host "NLA: Enabled (Secure TLS)"
+          Write-Host "Storage Mapping: P: -> \\100.93.61.9\PersistentStorage (Physical USB)"
+          Write-Host "========================`n"
+
+          # Keep runner active
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
+              Write-Host "[$(Get-Date)] Runner active - Tailscale & P: drive online"
               Start-Sleep -Seconds 300
           }
-
