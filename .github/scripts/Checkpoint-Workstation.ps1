@@ -8,6 +8,8 @@ $dirs = @(
     "$statePath\Apps\Inventory",
     "$statePath\Apps\Manifests",
     "$statePath\AppConfigs",
+    "$statePath\AppConfigs\AppData\Roaming",
+    "$statePath\AppConfigs\AppData\Local",
     "$statePath\Checkpoints",
     "$statePath\Reports",
     "$statePath\WindowsSettings",
@@ -24,6 +26,12 @@ function Invoke-Checkpoint {
     
     $rdpAppData = "$rdpProfilePath\AppData\Roaming"
     $rdpLocalAppData = "$rdpProfilePath\AppData\Local"
+    
+    $rdpSid = $null
+    try {
+        $rdpUser = New-Object System.Security.Principal.NTAccount("RDP")
+        $rdpSid = $rdpUser.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    } catch {}
 
     # 1. Machine Inventory
     $os = Get-CimInstance Win32_OperatingSystem
@@ -53,7 +61,10 @@ function Invoke-Checkpoint {
         "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
     )
-    $installedApps = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object DisplayName | Select-Object DisplayName, DisplayVersion, Publisher, InstallLocation, InstallSource, UninstallString
+    if ($rdpSid) {
+        $uninstallKeys += "Registry::HKEY_USERS\$rdpSid\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    }
+    $installedApps = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object DisplayName | Select-Object DisplayName, DisplayVersion, Publisher, InstallLocation, InstallSource, UninstallString | Sort-Object DisplayName -Unique
     
     $appManifest = @()
     foreach ($app in $installedApps) {
@@ -81,8 +92,8 @@ function Invoke-Checkpoint {
     if (Get-Command git -ErrorAction SilentlyContinue) { $devEnv.Git = (& git --version 2>&1) }
     $devEnv | ConvertTo-Json | Set-Content "$statePath\Apps\Manifests\dev-env.json"
 
-    # 4. App Configurations
-    Write-Host "Checkpointing configurations..."
+    # 4. App Configurations & Broad AppData Sync
+    Write-Host "Checkpointing configurations and generalized AppData..."
     
     # Safely backup SSH without private keys
     $sshDest = "$statePath\AppConfigs\SSH"
@@ -95,16 +106,18 @@ function Invoke-Checkpoint {
     if (-not (Test-Path $gitDest)) { New-Item -ItemType Directory -Path $gitDest -Force | Out-Null }
     if (Test-Path "$rdpProfilePath\.gitconfig") { Copy-Item "$rdpProfilePath\.gitconfig" -Destination $gitDest -Force -ErrorAction SilentlyContinue }
 
-    # VSCode & Windows Terminal
-    $configsToBackup = @(
-        @{ Name = "VSCode"; Path = "$rdpAppData\Code\User\settings.json" },
-        @{ Name = "WindowsTerminal"; Path = "$rdpLocalAppData\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json" }
-    )
-    foreach ($cfg in $configsToBackup) {
-        if (Test-Path $cfg.Path) {
-            $dest = "$statePath\AppConfigs\$($cfg.Name)"
-            if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-            Copy-Item -Path $cfg.Path -Destination $dest -Force -ErrorAction SilentlyContinue
+    # Generalized AppData sync (excludes noisy/system/Microsoft folders)
+    $appDataExclude = @("Microsoft", "Temp", "Packages", "CrashDumps", "Comms", "ConnectedDevicesPlatform")
+    if (Test-Path $rdpAppData) {
+        Get-ChildItem $rdpAppData -Directory | Where-Object { $appDataExclude -notcontains $_.Name } | ForEach-Object {
+            $dest = "$statePath\AppConfigs\AppData\Roaming\$($_.Name)"
+            & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+        }
+    }
+    if (Test-Path $rdpLocalAppData) {
+        Get-ChildItem $rdpLocalAppData -Directory | Where-Object { $appDataExclude -notcontains $_.Name } | ForEach-Object {
+            $dest = "$statePath\AppConfigs\AppData\Local\$($_.Name)"
+            & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
         }
     }
 
@@ -132,14 +145,26 @@ function Invoke-Checkpoint {
 
     # 6. User Workspace Folders (Incremental Backup via Robocopy)
     Write-Host "Checkpointing User Workspace incrementally..."
-    $workspaceFolders = @("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos")
+    $workspaceFolders = @("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos", "Favorites", "Links", "Contacts", "Saved Games", "3D Objects", "Searches")
     foreach ($folder in $workspaceFolders) {
         $sourceDir = "$rdpProfilePath\$folder"
         $destDir = "$statePath\UserData\$folder"
         if (Test-Path $sourceDir) {
             if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-            # Robocopy incremental sync (MIR), skip permissions (/COPY:DT), 1 retry, wait 1 sec
             & robocopy $sourceDir $destDir /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+        }
+    }
+    
+    # 7. Personalization (Wallpaper & Theme)
+    if ($rdpSid) {
+        Write-Host "Checkpointing Personalization..."
+        $wallpaper = (Get-ItemProperty "Registry::HKEY_USERS\$rdpSid\Control Panel\Desktop" -Name Wallpaper -ErrorAction SilentlyContinue).Wallpaper
+        if ($wallpaper -and (Test-Path $wallpaper)) {
+            Copy-Item $wallpaper -Destination "$statePath\WindowsSettings\Wallpaper.jpg" -Force -ErrorAction SilentlyContinue
+        }
+        $themeReg = "Registry::HKEY_USERS\$rdpSid\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        if (Test-Path $themeReg) {
+            & reg export "HKU\$rdpSid\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" "$statePath\WindowsSettings\Personalize.reg" /y | Out-Null
         }
     }
 
