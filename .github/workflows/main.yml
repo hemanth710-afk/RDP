@@ -118,8 +118,7 @@ jobs:
 
       - name: Mount Persistent Storage (P:) and Configure Interactive Logon
         run: |
-          $storageUser = "${{ secrets.STORAGE_USER }}"
-          if (-not $storageUser) { $storageUser = "StorageUser" }
+          $storageUser = "NASTYKNIGHT\StorageUser"
           $storagePass = "${{ secrets.STORAGE_PASSWORD }}"
           $rdpPassStr = "${{ secrets.RDP_PASSWORD }}"
 
