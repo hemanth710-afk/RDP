@@ -163,10 +163,7 @@ jobs:
 
           # 3. Configure per-user automatic drive mapping for interactive RDP desktop sessions
           $startupDir = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp"
-          $logonScript = @"
-@echo off
-net use P: $share /persistent:yes >nul 2>&1
-"@
+          $logonScript = "@echo off`r`nnet use P: $share /persistent:yes >nul 2>&1"
           Set-Content -Path "$startupDir\MapPDrive.bat" -Value $logonScript -Encoding ASCII
           Write-Host "Configured interactive desktop logon mapping script (no password embedded)."
 
