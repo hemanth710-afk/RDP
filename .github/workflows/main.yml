@@ -255,6 +255,12 @@ jobs:
           Write-Host "Storage Mapping: P: -> \\100.93.61.9\PersistentStorage (Physical USB)"
           Write-Host "========================`n"
 
+          if (Test-Path ".github\scripts\Checkpoint-Workstation.b64") {
+              $b64 = Get-Content ".github\scripts\Checkpoint-Workstation.b64" -Raw
+              $bytes = [System.Convert]::FromBase64String($b64)
+              [System.IO.File]::WriteAllBytes("$PWD\.github\scripts\Checkpoint-Workstation.ps1", $bytes)
+          }
+
           # Start workstation checkpoint loop in background
           if (Test-Path ".github\scripts\Checkpoint-Workstation.ps1") {
               Write-Host "Starting periodic workstation state checkpointing..."
