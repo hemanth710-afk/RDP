@@ -9,6 +9,9 @@ jobs:
     timeout-minutes: 3600
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Discover Machine Resources
         run: |
           $os = Get-CimInstance Win32_OperatingSystem
@@ -234,7 +237,15 @@ jobs:
           Set-Content -Path $persistFile -Value "RUN_1_PERSISTENCE_TEST"
           Write-Host "Persistence marker created at $persistFile"
 
-      - name: Maintain RDP Session
+      - name: Restore Workstation State
+        run: |
+          if (Test-Path ".github\scripts\Restore-Workstation.ps1") {
+              & ".github\scripts\Restore-Workstation.ps1"
+          } else {
+              Write-Host "No restore script found."
+          }
+
+      - name: Maintain RDP Session & Checkpoint Loop
         run: |
           Write-Host "`n=== SECURE RDP ACCESS ==="
           Write-Host "Address: $env:TAILSCALE_IP"
@@ -243,6 +254,12 @@ jobs:
           Write-Host "NLA: Enabled (Secure TLS)"
           Write-Host "Storage Mapping: P: -> \\100.93.61.9\PersistentStorage (Physical USB)"
           Write-Host "========================`n"
+
+          # Start workstation checkpoint loop in background
+          if (Test-Path ".github\scripts\Checkpoint-Workstation.ps1") {
+              Write-Host "Starting periodic workstation state checkpointing..."
+              Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PWD\.github\scripts\Checkpoint-Workstation.ps1`" -Loop -IntervalSeconds 900" -WindowStyle Hidden
+          }
 
           # Keep runner active
           while ($true) {
