@@ -82,12 +82,15 @@ jobs:
 
       - name: Connect Tailscale
         run: |
-          # Bring up Tailscale and grant operator permission to RDP user
+          # Bring up Tailscale in unattended mode
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
             --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
             --hostname=gh-runner-$env:GITHUB_RUN_ID `
-            --operator=RDP
+            --unattended
           
+          # Verify Tailscale status
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" status
+
           $tsIP = $null
           $retries = 0
           while (-not $tsIP -and $retries -lt 12) {
@@ -95,8 +98,8 @@ jobs:
               Start-Sleep -Seconds 5
               $retries++
           }
-          if (-not $tsIP) {
-              Write-Error "Tailscale IP not assigned. Exiting."
+          if (-not $tsIP -or $tsIP -notmatch "^100\.") {
+              Write-Error "Tailscale IP not assigned or not a valid 100.x address. Exiting."
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
