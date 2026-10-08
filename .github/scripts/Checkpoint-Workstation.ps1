@@ -133,20 +133,58 @@ function Invoke-Checkpoint {
         $npmExe = Join-Path (Split-Path $nodeExe.Path) "npm.cmd"
         if (-not (Test-Path $npmExe)) { $npmExe = Join-Path (Split-Path $nodeExe.Path) "npm" }
         if (Test-Path $npmExe) {
-            # Dump global packages; npm ls -g --json gives dependency tree
-            $npmOut = & $npmExe ls -g --json 2>&1 | Out-String
-            $npmOut | Set-Content "$statePath\Apps\Manifests\npm-packages.json"
-            # Also write a flat list of top-level package names+versions for clean reinstall
+            # Capture npm stdout JSON strictly separated from stderr (do NOT use 2>&1)
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            if ($npmExe.EndsWith(".cmd", [System.StringComparison]::OrdinalIgnoreCase) -or $npmExe.EndsWith(".bat", [System.StringComparison]::OrdinalIgnoreCase)) {
+                $psi.FileName = "cmd.exe"
+                $psi.Arguments = "/d /c `"`"$npmExe`" ls -g --json`""
+            } else {
+                $psi.FileName = $npmExe
+                $psi.Arguments = "ls -g --json"
+            }
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+
+            $proc = New-Object System.Diagnostics.Process
+            $proc.StartInfo = $psi
+            $proc.Start() | Out-Null
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
+            $proc.WaitForExit()
+            $npmStdout = $stdoutTask.Result
+            $npmStderr = $stderrTask.Result
+
+            # Preserve the complete valid npm-packages.json from stdout
+            if ($npmStdout -and $npmStdout.Trim()) {
+                $npmStdout.Trim() | Set-Content "$statePath\Apps\Manifests\npm-packages.json" -Encoding UTF8
+            }
+
+            # Parse only valid JSON stdout and generate flat manifest
             try {
-                $npmJson = $npmOut | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if (-not ($npmStdout -and $npmStdout.Trim())) {
+                    throw "npm stdout was empty or null"
+                }
+                $npmJson = $npmStdout | ConvertFrom-Json -ErrorAction Stop
+                $npmFlat = @()
                 if ($npmJson.dependencies) {
                     $npmFlat = $npmJson.dependencies.PSObject.Properties | ForEach-Object {
-                        "$($_.Name)@$($_.Value.version)"
+                        if ($_.Value.version) {
+                            "$($_.Name)@$($_.Value.version)"
+                        } else {
+                            "$($_.Name)"
+                        }
                     }
-                    $npmFlat | Set-Content "$statePath\Apps\Manifests\npm-packages-flat.txt"
                 }
-            } catch {}
-            $devEnv.NpmPackagesFile = "npm-packages-flat.txt"
+                $npmFlat | Set-Content "$statePath\Apps\Manifests\npm-packages-flat.txt" -Encoding UTF8
+                $devEnv.NpmPackagesFile = "npm-packages-flat.txt"
+            } catch {
+                $devEnv.NpmError = "Failed to parse npm JSON: $($_.Exception.Message)"
+                if ($npmStderr -and $npmStderr.Trim()) {
+                    $devEnv.NpmStderr = $npmStderr.Trim()
+                }
+            }
         }
     } else {
         $devEnv.Node = "NOT FOUND IN RDP USER PATHS"
