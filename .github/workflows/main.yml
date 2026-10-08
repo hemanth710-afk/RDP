@@ -110,7 +110,10 @@ jobs:
           $storageHost = "100.93.61.9"
           Write-Host "Testing ping to Storage Host $storageHost..."
           $pingOutput = cmd.exe /c "`"$env:ProgramFiles\Tailscale\tailscale.exe`" ping --c 3 $storageHost 2>&1" | Out-String
+          $pingExitCode = $LASTEXITCODE
+
           Write-Host $pingOutput
+          Write-Host "Tailscale ping exit code: $pingExitCode"
 
           if ($pingOutput -match "via DERP" -or $pingOutput -match "relay") {
               Write-Host "Path type: DERP/relay"
@@ -119,15 +122,19 @@ jobs:
           } else {
               Write-Host "Path type: unknown"
           }
-          Write-Host "Tailscale connectivity: PASS"
 
           Write-Host "Testing SMB TCP port 445 on $storageHost..."
           $portTest = Test-NetConnection $storageHost -Port 445
-          if (-not $portTest.TcpTestSucceeded) {
+          
+          if ($portTest.TcpTestSucceeded) {
+              Write-Host "Tailscale connectivity: PASS"
+              Write-Host "SMB TCP 445: PASS"
+              $global:LASTEXITCODE = 0
+              exit 0
+          } else {
               Write-Error "TCP port 445 to Storage Host failed! Ensure Machine A is powered on and Tailscale is running."
               exit 1
           }
-          Write-Host "SMB TCP 445: PASS"
 
       - name: Mount Persistent Storage (P:) and Configure Interactive Logon
         run: |
