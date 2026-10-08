@@ -20,37 +20,39 @@ foreach ($d in $dirs) { if (-not (Test-Path $d)) { New-Item -ItemType Directory 
 function Invoke-Checkpoint {
     Write-Host "[$(Get-Date)] Starting workstation checkpoint..."
 
-    # Determine RDP user profile dynamically
-    $rdpProfilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue | Where-Object { $_.ProfileImagePath -match "\\RDP$" }).ProfileImagePath
+    # --- Determine RDP user profile dynamically ---
+    $rdpProfilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProfileImagePath -match "\\RDP$" }).ProfileImagePath
     if (-not $rdpProfilePath) { $rdpProfilePath = "C:\Users\RDP" }
-    
-    $rdpAppData = "$rdpProfilePath\AppData\Roaming"
+
+    $rdpAppData      = "$rdpProfilePath\AppData\Roaming"
     $rdpLocalAppData = "$rdpProfilePath\AppData\Local"
-    
+
     $rdpSid = $null
     try {
         $rdpUser = New-Object System.Security.Principal.NTAccount("RDP")
-        $rdpSid = $rdpUser.Translate([System.Security.Principal.SecurityIdentifier]).Value
+        $rdpSid  = $rdpUser.Translate([System.Security.Principal.SecurityIdentifier]).Value
     } catch {}
 
     # 1. Machine Inventory
-    $os = Get-CimInstance Win32_OperatingSystem
-    $cs = Get-CimInstance Win32_ComputerSystem
-    $proc = Get-CimInstance Win32_Processor
-    $drives = Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{N='FreeGB';E={[math]::Round($_.Free/1GB, 2)}}, @{N='TotalGB';E={[math]::Round($_.Used/1GB + $_.Free/1GB, 2)}}
-    $inventory = @{
+    $os    = Get-CimInstance Win32_OperatingSystem
+    $cs    = Get-CimInstance Win32_ComputerSystem
+    $proc  = Get-CimInstance Win32_Processor
+    $drives = Get-PSDrive -PSProvider FileSystem |
+              Select-Object Name,
+                @{N='FreeGB';E={[math]::Round($_.Free/1GB,2)}},
+                @{N='TotalGB';E={[math]::Round($_.Used/1GB + $_.Free/1GB,2)}}
+    @{
         Timestamp = (Get-Date).ToString("o")
-        OS = $os.Caption
-        Build = $os.BuildNumber
-        Hostname = $cs.Name
-        CPU = $proc.Name
-        RAM_GB = [math]::Round($cs.TotalPhysicalMemory/1GB, 2)
-        Drives = $drives
-    }
-    $inventory | ConvertTo-Json -Depth 5 | Set-Content "$statePath\Reports\MachineInventory.json"
-    $inventory | Out-String | Set-Content "$statePath\Reports\MachineInventory.txt"
+        OS        = $os.Caption
+        Build     = $os.BuildNumber
+        Hostname  = $cs.Name
+        CPU       = $proc.Name
+        RAM_GB    = [math]::Round($cs.TotalPhysicalMemory/1GB,2)
+        Drives    = $drives
+    } | ConvertTo-Json -Depth 5 | Set-Content "$statePath\Reports\MachineInventory.json"
 
-    # 2. Installed Apps (Registry & Winget)
+    # 2. Installed Apps (Registry + Winget) — system-wide and RDP-user hive
     Write-Host "Inventorying applications..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         & winget export -o "$statePath\Apps\Manifests\winget-export.json" --accept-source-agreements 2>&1 | Out-Null
@@ -64,100 +66,174 @@ function Invoke-Checkpoint {
     if ($rdpSid) {
         $uninstallKeys += "Registry::HKEY_USERS\$rdpSid\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
     }
-    $installedApps = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object DisplayName | Select-Object DisplayName, DisplayVersion, Publisher, InstallLocation, InstallSource, UninstallString | Sort-Object DisplayName -Unique
-    
+    $installedApps = Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue |
+        Where-Object DisplayName |
+        Select-Object DisplayName, DisplayVersion, Publisher, InstallLocation, InstallSource, UninstallString |
+        Sort-Object DisplayName -Unique
+
     $appManifest = @()
     foreach ($app in $installedApps) {
         $category = "MANUAL ACTIVATION/LOGIN REQUIRED"
-        if ($app.DisplayName -match "Visual Studio|Python|Git|Node.js") { $category = "AUTO-RESTORABLE" }
+        if ($app.DisplayName -match "Visual Studio|Python|Git|Node.js|Node JS") { $category = "AUTO-RESTORABLE" }
         elseif ($app.DisplayName -match "Office|Adobe") { $category = "NOT AUTOMATICALLY RESTORABLE" }
-        
         $appManifest += @{
-            Application = $app.DisplayName
-            Publisher = $app.Publisher
-            Version = $app.DisplayVersion
+            Application     = $app.DisplayName
+            Publisher       = $app.Publisher
+            Version         = $app.DisplayVersion
             InstallLocation = $app.InstallLocation
             RestoreCategory = $category
         }
     }
     $appManifest | ConvertTo-Json -Depth 5 | Set-Content "$statePath\Apps\Inventory\installed-apps.json"
 
-    # 3. Development Environment
-    Write-Host "Inventorying development environment..."
-    $devEnv = @{}
-    if (Get-Command python -ErrorAction SilentlyContinue) { $devEnv.Python = (& python --version 2>&1) }
-    if (Get-Command pip -ErrorAction SilentlyContinue) { & pip freeze > "$statePath\Apps\Manifests\python-packages.txt" 2>&1 }
-    if (Get-Command node -ErrorAction SilentlyContinue) { $devEnv.Node = (& node -v 2>&1) }
-    if (Get-Command npm -ErrorAction SilentlyContinue) { & npm ls -g --json > "$statePath\Apps\Manifests\npm-packages.json" 2>&1 }
-    if (Get-Command git -ErrorAction SilentlyContinue) { $devEnv.Git = (& git --version 2>&1) }
-    $devEnv | ConvertTo-Json | Set-Content "$statePath\Apps\Manifests\dev-env.json"
+    # 3. Development Environment — RDP user context
+    # We do NOT simply call python/node/git here, because the checkpoint
+    # runs as the GitHub Actions runner service account (runneradmin).
+    # Instead, we discover what is installed FOR the RDP user by:
+    #   a) Scanning PATH-like locations under the RDP user profile directory.
+    #   b) Scanning standard per-user installation locations.
+    #   c) Falling back to system-wide executables where unambiguous.
+    Write-Host "Inventorying development environment (RDP user context)..."
 
-    # 4. App Configurations & Broad AppData Sync
+    $devEnv = @{ ContextNote = "Collected from RDP user paths and system-wide installations" }
+
+    # --- Python: check RDP user's local Python installation and system Python ---
+    $pythonCandidates = @(
+        "$rdpLocalAppData\Programs\Python\Python*\python.exe",
+        "C:\Python*\python.exe",
+        "C:\Program Files\Python*\python.exe",
+        "C:\Program Files (x86)\Python*\python.exe"
+    ) | ForEach-Object { Resolve-Path $_ -ErrorAction SilentlyContinue }
+    $pythonExe = $pythonCandidates | Select-Object -First 1
+
+    if ($pythonExe) {
+        $devEnv.Python = (& $pythonExe.Path --version 2>&1)
+        # pip freeze — captures packages installed for that Python
+        $pipExe = Join-Path (Split-Path $pythonExe.Path) "pip.exe"
+        if (-not (Test-Path $pipExe)) { $pipExe = Join-Path (Split-Path $pythonExe.Path) "Scripts\pip.exe" }
+        if (Test-Path $pipExe) {
+            & $pipExe freeze > "$statePath\Apps\Manifests\python-packages.txt" 2>&1
+            $devEnv.PythonPackagesFile = "python-packages.txt"
+        }
+    } else {
+        $devEnv.Python = "NOT FOUND IN RDP USER PATHS"
+    }
+
+    # --- Node.js: check RDP user's local Node installation and system ---
+    $nodeCandidates = @(
+        "$rdpAppData\nvm\*\node.exe",
+        "$rdpLocalAppData\Programs\node\node.exe",
+        "C:\Program Files\nodejs\node.exe",
+        "C:\Program Files (x86)\nodejs\node.exe"
+    ) | ForEach-Object { Resolve-Path $_ -ErrorAction SilentlyContinue }
+    $nodeExe = $nodeCandidates | Select-Object -First 1
+
+    if ($nodeExe) {
+        $devEnv.Node = (& $nodeExe.Path -v 2>&1)
+        $npmExe = Join-Path (Split-Path $nodeExe.Path) "npm.cmd"
+        if (-not (Test-Path $npmExe)) { $npmExe = Join-Path (Split-Path $nodeExe.Path) "npm" }
+        if (Test-Path $npmExe) {
+            # Dump global packages; npm ls -g --json gives dependency tree
+            $npmOut = & $npmExe ls -g --json 2>&1 | Out-String
+            $npmOut | Set-Content "$statePath\Apps\Manifests\npm-packages.json"
+            # Also write a flat list of top-level package names+versions for clean reinstall
+            try {
+                $npmJson = $npmOut | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($npmJson.dependencies) {
+                    $npmFlat = $npmJson.dependencies.PSObject.Properties | ForEach-Object {
+                        "$($_.Name)@$($_.Value.version)"
+                    }
+                    $npmFlat | Set-Content "$statePath\Apps\Manifests\npm-packages-flat.txt"
+                }
+            } catch {}
+            $devEnv.NpmPackagesFile = "npm-packages-flat.txt"
+        }
+    } else {
+        $devEnv.Node = "NOT FOUND IN RDP USER PATHS"
+    }
+
+    # --- Git: system-wide only (not user-specific) ---
+    $gitExe = Get-Command git -ErrorAction SilentlyContinue
+    if ($gitExe) { $devEnv.Git = (& git --version 2>&1) }
+
+    $devEnv | ConvertTo-Json -Depth 5 | Set-Content "$statePath\Apps\Manifests\dev-env.json"
+
+    # 4. App Configurations + Broad AppData Sync
     Write-Host "Checkpointing configurations and generalized AppData..."
-    
-    # Safely backup SSH without private keys
+
+    # SSH — safe files only, never private keys
     $sshDest = "$statePath\AppConfigs\SSH"
     if (-not (Test-Path $sshDest)) { New-Item -ItemType Directory -Path $sshDest -Force | Out-Null }
-    if (Test-Path "$rdpProfilePath\.ssh\config") { Copy-Item "$rdpProfilePath\.ssh\config" -Destination $sshDest -Force -ErrorAction SilentlyContinue }
-    if (Test-Path "$rdpProfilePath\.ssh\known_hosts") { Copy-Item "$rdpProfilePath\.ssh\known_hosts" -Destination $sshDest -Force -ErrorAction SilentlyContinue }
+    foreach ($sshFile in @("config", "known_hosts")) {
+        $src = "$rdpProfilePath\.ssh\$sshFile"
+        if (Test-Path $src) { Copy-Item $src -Destination $sshDest -Force -ErrorAction SilentlyContinue }
+    }
 
-    # Git
+    # Git config
     $gitDest = "$statePath\AppConfigs\Git"
     if (-not (Test-Path $gitDest)) { New-Item -ItemType Directory -Path $gitDest -Force | Out-Null }
-    if (Test-Path "$rdpProfilePath\.gitconfig") { Copy-Item "$rdpProfilePath\.gitconfig" -Destination $gitDest -Force -ErrorAction SilentlyContinue }
+    if (Test-Path "$rdpProfilePath\.gitconfig") {
+        Copy-Item "$rdpProfilePath\.gitconfig" -Destination $gitDest -Force -ErrorAction SilentlyContinue
+    }
 
-    # Generalized AppData sync (excludes noisy/system/Microsoft folders)
-    $appDataExclude = @("Microsoft", "Temp", "Packages", "CrashDumps", "Comms", "ConnectedDevicesPlatform")
+    # Generalized AppData sync — checkpoint side uses /MIR so the USB mirror
+    # reflects the current application state exactly.
+    # Sensitive/system/large directories are skipped at the top level.
+    $appDataExcludeDirs  = @("Microsoft", "Temp", "Packages", "CrashDumps", "Comms", "ConnectedDevicesPlatform", "Google", "Mozilla")
+    $robocopyExcludeDirs = @("Cache", "Caches", "Code Cache", "GPUCache", "DawnCache", "Session Storage", "Local Storage", "IndexedDB", "Service Worker", "Network", "Crashpad", "CrashReports", "logs", "Log", "Auth", "Authentication", "Credentials", "Tokens", "Keychains")
+    $robocopyExcludeFiles = @("Cookies", "Cookies-journal", "Login Data", "Login Data-journal", "Web Data", "Web Data-journal", "*token*", "*.pem", "*.key", "id_rsa*", "id_ed25519*", "credentials.json", "auth.json", "secrets.json", "*.kdbx", "*.log", ".env")
+
     if (Test-Path $rdpAppData) {
-        Get-ChildItem $rdpAppData -Directory | Where-Object { $appDataExclude -notcontains $_.Name } | ForEach-Object {
+        Get-ChildItem $rdpAppData -Directory | Where-Object { $appDataExcludeDirs -notcontains $_.Name } | ForEach-Object {
             $dest = "$statePath\AppConfigs\AppData\Roaming\$($_.Name)"
-            & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+            & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS /XD $robocopyExcludeDirs /XF $robocopyExcludeFiles | Out-Null
         }
     }
     if (Test-Path $rdpLocalAppData) {
-        Get-ChildItem $rdpLocalAppData -Directory | Where-Object { $appDataExclude -notcontains $_.Name } | ForEach-Object {
+        Get-ChildItem $rdpLocalAppData -Directory | Where-Object { $appDataExcludeDirs -notcontains $_.Name } | ForEach-Object {
             $dest = "$statePath\AppConfigs\AppData\Local\$($_.Name)"
-            & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+            & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS /XD $robocopyExcludeDirs /XF $robocopyExcludeFiles | Out-Null
         }
     }
 
-    # 5. Browser Configurations (Safe Metadata Only - Bookmarks & Preferences)
+    # 5. Browser — safe metadata only (Bookmarks + Preferences, no passwords/cookies/sessions)
     $browsers = @(
-        @{ Name = "Chrome"; Path = "$rdpLocalAppData\Google\Chrome\User Data\Default"; Files = @("Bookmarks", "Preferences") },
-        @{ Name = "Edge"; Path = "$rdpLocalAppData\Microsoft\Edge\User Data\Default"; Files = @("Bookmarks", "Preferences") },
+        @{ Name = "Chrome";  Path = "$rdpLocalAppData\Google\Chrome\User Data\Default"; Files = @("Bookmarks", "Preferences") },
+        @{ Name = "Edge";    Path = "$rdpLocalAppData\Microsoft\Edge\User Data\Default"; Files = @("Bookmarks", "Preferences") },
         @{ Name = "Firefox"; Path = "$rdpAppData\Mozilla\Firefox\Profiles"; IsProfile = $true }
     )
     foreach ($b in $browsers) {
         $dest = "$statePath\AppConfigs\$($b.Name)"
         if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-        
         if ($b.IsProfile -eq $true -and (Test-Path $b.Path)) {
-            $ffProfile = Get-ChildItem $b.Path -Directory | Where-Object Name -match "default-release" | Select-Object -First 1
-            if ($ffProfile) {
-                if (Test-Path "$($ffProfile.FullName)\places.sqlite") { Copy-Item "$($ffProfile.FullName)\places.sqlite" -Destination $dest -Force -ErrorAction SilentlyContinue }
+            $ffProfile = Get-ChildItem $b.Path -Directory |
+                Where-Object Name -match "default-release" | Select-Object -First 1
+            if ($ffProfile -and (Test-Path "$($ffProfile.FullName)\places.sqlite")) {
+                Copy-Item "$($ffProfile.FullName)\places.sqlite" -Destination $dest -Force -ErrorAction SilentlyContinue
             }
         } elseif (Test-Path $b.Path) {
             foreach ($file in $b.Files) {
-                if (Test-Path "$($b.Path)\$file") { Copy-Item "$($b.Path)\$file" -Destination $dest -Force -ErrorAction SilentlyContinue }
+                $src = "$($b.Path)\$file"
+                if (Test-Path $src) { Copy-Item $src -Destination $dest -Force -ErrorAction SilentlyContinue }
             }
         }
     }
 
-    # 6. User Workspace Folders (Incremental Backup via Robocopy)
-    Write-Host "Checkpointing User Workspace incrementally..."
-    $workspaceFolders = @("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos", "Favorites", "Links", "Contacts", "Saved Games", "3D Objects", "Searches")
+    # 6. User workspace folders — /MIR keeps the USB mirror accurate
+    Write-Host "Checkpointing user workspace incrementally..."
+    $workspaceFolders = @("Desktop","Documents","Downloads","Pictures","Music","Videos","Favorites","Links","Contacts","Saved Games","3D Objects","Searches")
     foreach ($folder in $workspaceFolders) {
-        $sourceDir = "$rdpProfilePath\$folder"
-        $destDir = "$statePath\UserData\$folder"
-        if (Test-Path $sourceDir) {
-            if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-            & robocopy $sourceDir $destDir /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+        $src  = "$rdpProfilePath\$folder"
+        $dest = "$statePath\UserData\$folder"
+        if (Test-Path $src) {
+            if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
+            & robocopy $src $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
         }
     }
-    
-    # 7. Personalization (Wallpaper & Theme)
+
+    # 7. Personalization (Wallpaper + Theme) — reads from RDP user's hive via HKU
     if ($rdpSid) {
-        Write-Host "Checkpointing Personalization..."
+        Write-Host "Checkpointing personalization..."
         $wallpaper = (Get-ItemProperty "Registry::HKEY_USERS\$rdpSid\Control Panel\Desktop" -Name Wallpaper -ErrorAction SilentlyContinue).Wallpaper
         if ($wallpaper -and (Test-Path $wallpaper)) {
             Copy-Item $wallpaper -Destination "$statePath\WindowsSettings\Wallpaper.jpg" -Force -ErrorAction SilentlyContinue

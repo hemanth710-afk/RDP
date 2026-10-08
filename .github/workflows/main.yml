@@ -255,20 +255,53 @@ jobs:
           Write-Host "Storage Mapping: P: -> \\100.93.61.9\PersistentStorage (Physical USB)"
           Write-Host "========================`n"
 
-          if (Test-Path ".github\scripts\Checkpoint-Workstation.b64") {
-              $b64 = Get-Content ".github\scripts\Checkpoint-Workstation.b64" -Raw
-              $bytes = [System.Convert]::FromBase64String($b64)
-              [System.IO.File]::WriteAllBytes("$PWD\.github\scripts\Checkpoint-Workstation.ps1", $bytes)
+          $checkpointScript = "$PWD\.github\scripts\Checkpoint-Workstation.ps1"
+
+          if (-not (Test-Path $checkpointScript)) {
+              Write-Host "WARNING: Checkpoint-Workstation.ps1 not found. Checkpointing disabled."
           }
 
-          # Start workstation checkpoint loop in background
-          if (Test-Path ".github\scripts\Checkpoint-Workstation.ps1") {
-              Write-Host "Starting periodic workstation state checkpointing..."
-              Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PWD\.github\scripts\Checkpoint-Workstation.ps1`" -Loop -IntervalSeconds 900" -WindowStyle Hidden
+          # Run an immediate first checkpoint so there is always at least one
+          # snapshot before the interactive session begins.
+          if (Test-Path $checkpointScript) {
+              Write-Host "Running initial checkpoint..."
+              & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $checkpointScript
           }
 
-          # Keep runner active
+          # Launch background checkpoint loop and record its PID for health monitoring
+          $checkpointPid = $null
+          if (Test-Path $checkpointScript) {
+              Write-Host "Starting periodic checkpoint loop (every 15 minutes)..."
+              $proc = Start-Process powershell.exe `
+                  -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$checkpointScript`" -Loop -IntervalSeconds 900" `
+                  -WindowStyle Hidden -PassThru
+              $checkpointPid = $proc.Id
+              Write-Host "Checkpoint loop started (PID $checkpointPid)."
+          }
+
+          # Keep runner active.
+          # Every 5 minutes: verify the checkpoint process is still alive.
+          # If it has died, restart it once.
+          $restartedCheckpoint = $false
           while ($true) {
               Write-Host "[$(Get-Date)] Runner active - Tailscale & P: drive online"
+
+              if ($checkpointPid -and (Test-Path $checkpointScript)) {
+                  $alive = Get-Process -Id $checkpointPid -ErrorAction SilentlyContinue
+                  if (-not $alive) {
+                      if (-not $restartedCheckpoint) {
+                          Write-Host "WARNING: Checkpoint process (PID $checkpointPid) has died. Restarting..."
+                          $proc = Start-Process powershell.exe `
+                              -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$checkpointScript`" -Loop -IntervalSeconds 900" `
+                              -WindowStyle Hidden -PassThru
+                          $checkpointPid = $proc.Id
+                          $restartedCheckpoint = $true
+                          Write-Host "Checkpoint restarted (PID $checkpointPid)."
+                      } else {
+                          Write-Host "WARNING: Checkpoint process died again after restart. Not restarting further."
+                      }
+                  }
+              }
+
               Start-Sleep -Seconds 300
           }
