@@ -50,22 +50,10 @@ jobs:
 
       - name: Create / Configure RDP User Securely
         run: |
-          # Retrieve or generate RDP password securely without printing to logs
           $password = "${{ secrets.RDP_PASSWORD }}"
           if (-not $password) {
-              Add-Type -AssemblyName System.Security
-              $charSet = @{
-                  Upper   = [char[]](65..90)
-                  Lower   = [char[]](97..122)
-                  Number  = [char[]](48..57)
-                  Special = [char[]](33..38) + [char[]](42..46)
-              }
-              $rawPassword = @()
-              $rawPassword += $charSet.Upper | Get-Random -Count 4
-              $rawPassword += $charSet.Lower | Get-Random -Count 4
-              $rawPassword += $charSet.Number | Get-Random -Count 4
-              $rawPassword += $charSet.Special | Get-Random -Count 4
-              $password = -join ($rawPassword | Sort-Object { Get-Random })
+              Write-Error "RDP_PASSWORD secret is missing. Please set RDP_PASSWORD in GitHub Repository Secrets."
+              exit 1
           }
 
           # Mask password from all workflow output logs
@@ -133,32 +121,55 @@ jobs:
           $storageUser = "${{ secrets.STORAGE_USER }}"
           if (-not $storageUser) { $storageUser = "StorageUser" }
           $storagePass = "${{ secrets.STORAGE_PASSWORD }}"
+          $rdpPassStr = "${{ secrets.RDP_PASSWORD }}"
 
-          if (-not $storagePass) {
-              Write-Error "STORAGE_PASSWORD secret is missing. Please set STORAGE_PASSWORD in GitHub Repository Secrets."
+          if (-not $storagePass -or -not $rdpPassStr) {
+              Write-Error "Missing STORAGE_PASSWORD or RDP_PASSWORD secrets."
               exit 1
           }
           Write-Output "::add-mask::$storagePass"
+          Write-Output "::add-mask::$rdpPassStr"
 
           $share = "\\100.93.61.9\PersistentStorage"
 
-          # 1. Mount P: drive in current runner session
-          Write-Host "Connecting SMB share $share..."
-          net use P: $share "/user:$storageUser" "$storagePass" /persistent:yes
+          # 1. Store credentials for the RDP user via Credential Manager
+          Write-Host "Storing SMB credentials for RDP user..."
+          $rdpSecure = ConvertTo-SecureString $rdpPassStr -AsPlainText -Force
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = "cmdkey.exe"
+          $psi.Arguments = "/add:100.93.61.9 /user:`"$storageUser`" /pass:`"$storagePass`""
+          $psi.UserName = "RDP"
+          $psi.Domain = "."
+          $psi.Password = $rdpSecure
+          $psi.UseShellExecute = $false
+          $psi.LoadUserProfile = $true
+          $psi.WorkingDirectory = "C:\"
+          $process = [System.Diagnostics.Process]::Start($psi)
+          $process.WaitForExit()
+          if ($process.ExitCode -ne 0) {
+              Write-Error "Failed to store credentials using cmdkey for RDP user."
+          } else {
+              Write-Host "Credentials stored successfully in Windows Credential Manager for RDP user."
+          }
+
+          # 2. Mount P: drive in current runner session
+          Write-Host "Connecting SMB share $share for runner..."
+          cmdkey.exe /add:100.93.61.9 /user:"$storageUser" /pass:"$storagePass" | Out-Null
+          net use P: $share /persistent:yes
           if ($LASTEXITCODE -ne 0) {
               Write-Error "Failed to map P: drive via net use."
               exit 1
           }
           Write-Host "P: drive successfully mapped to $share"
 
-          # 2. Configure per-user automatic drive mapping for interactive RDP desktop sessions
+          # 3. Configure per-user automatic drive mapping for interactive RDP desktop sessions
           $startupDir = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp"
           $logonScript = @"
 @echo off
-net use P: $share /user:$storageUser $storagePass /persistent:yes >nul 2>&1
+net use P: $share /persistent:yes >nul 2>&1
 "@
           Set-Content -Path "$startupDir\MapPDrive.bat" -Value $logonScript -Encoding ASCII
-          Write-Host "Configured interactive desktop logon mapping script in All Users Startup."
+          Write-Host "Configured interactive desktop logon mapping script (no password embedded)."
 
       - name: Verify Persistent Directories on P:
         run: |
