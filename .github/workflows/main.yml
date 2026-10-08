@@ -167,7 +167,7 @@ jobs:
           Set-Content -Path "$startupDir\MapPDrive.bat" -Value $logonScript -Encoding ASCII
           Write-Host "Configured interactive desktop logon mapping script (no password embedded)."
 
-      - name: Verify Persistent Directories on P:
+      - name: "Verify Persistent Directories on P:"
         run: |
           $requiredDirs = @("AI_EDITOR", "Videos", "Assets", "Projects", "Backups")
           $missing = @()
