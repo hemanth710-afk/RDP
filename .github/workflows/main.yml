@@ -233,7 +233,11 @@ jobs:
           Write-Host "Temporary test files cleaned up successfully."
 
           # Phase 17: Persistence Test Marker
-          $persistFile = "P:\Projects\PersistenceTest.txt"
+          $checkpointsDir = "P:\WorkstationState\Checkpoints"
+          if (-not (Test-Path $checkpointsDir)) {
+              New-Item -ItemType Directory -Path $checkpointsDir -Force | Out-Null
+          }
+          $persistFile = "$checkpointsDir\PersistenceTest.txt"
           Set-Content -Path $persistFile -Value "RUN_1_PERSISTENCE_TEST"
           Write-Host "Persistence marker created at $persistFile"
 
@@ -396,7 +400,7 @@ jobs:
           }
 
           $statePath = "P:\WorkstationState"
-          $heartbeatFile = "$statePath\Checkpoints\heartbeat.json"
+          $heartbeatFile = "C:\ProgramData\Workstation\checkpoint-heartbeat.json"
           $recoveryStatusFile = "C:\ProgramData\Workstation\Recovery-Status.json"
           $restartedCheckpoint = $false
 

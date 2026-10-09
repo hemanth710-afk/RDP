@@ -1,10 +1,13 @@
 param(
     [switch]$Loop = $false,
     [int]$IntervalSeconds = 3600,
-    [int]$InitialDelaySeconds = 900
+    [int]$InitialDelaySeconds = 900,
+    [switch]$AllowMirror = $false,
+    [string]$StatePath = "P:\WorkstationState",
+    [string]$ToolsDir  = "C:\ProgramData\Workstation"
 )
 
-$statePath = "P:\WorkstationState"
+$statePath = $StatePath
 $dirs = @(
     "$statePath\Apps\Inventory",
     "$statePath\Apps\Manifests",
@@ -17,8 +20,9 @@ $dirs = @(
     "$statePath\UserData"
 )
 
-$toolsDir  = "C:\ProgramData\Workstation"
-$lockFile  = "$toolsDir\workstation.lock"
+$toolsDir           = $ToolsDir
+$lockFile           = "$toolsDir\workstation.lock"
+$heartbeatLocalFile = "$toolsDir\checkpoint-heartbeat.json"
 
 if (-not (Test-Path $toolsDir)) {
     New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
@@ -169,6 +173,82 @@ function Invoke-RobocopySafe {
 }
 
 # ---------------------------------------------------------------------------
+# Checkpoint Baseline Invalidation Helper (Re-arming Safety)
+# ---------------------------------------------------------------------------
+function Invalidate-CheckpointBaseline {
+    param([string]$Reason)
+    $baselineFile = "$toolsDir\checkpoint-baseline.json"
+    if (Test-Path $baselineFile) {
+        Remove-Item $baselineFile -Force -ErrorAction SilentlyContinue
+        Write-Host "  [Safety] Checkpoint baseline invalidated: $Reason. Next cycle forced to additive /E."
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Destination-Only File Protection Snapshot Helper (Pre-Mirror Backup)
+# ---------------------------------------------------------------------------
+function Protect-DestinationOnlyFiles {
+    param(
+        [Parameter(Mandatory=$true)][string]$Source,
+        [Parameter(Mandatory=$true)][string]$Destination,
+        [Parameter(Mandatory=$true)][string]$SnapshotDir,
+        [string[]]$ExcludeDirs = @(),
+        [string[]]$ExcludeFiles = @()
+    )
+    if (-not (Test-Path $Destination) -or -not (Test-Path $Source)) {
+        return @{ PreservedCount = 0; PreservedFiles = @() }
+    }
+
+    $destFull = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\') + '\'
+    $destFiles = Get-ChildItem -Path $Destination -Recurse -File -Force -ErrorAction SilentlyContinue
+    if (-not $destFiles -or $destFiles.Count -eq 0) {
+        return @{ PreservedCount = 0; PreservedFiles = @() }
+    }
+
+    $preserved = [System.Collections.Generic.List[string]]::new()
+    foreach ($file in $destFiles) {
+        $fileFull = [System.IO.Path]::GetFullPath($file.FullName)
+        if (-not $fileFull.StartsWith($destFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        $relPath = $fileFull.Substring($destFull.Length)
+
+        # Check directory exclusions
+        $skip = $false
+        foreach ($xd in $ExcludeDirs) {
+            if ($relPath -split '\\' -contains $xd) { $skip = $true; break }
+        }
+        if ($skip) { continue }
+
+        # Check file exclusions
+        foreach ($xf in $ExcludeFiles) {
+            if ($file.Name -like $xf) { $skip = $true; break }
+        }
+        if ($skip) { continue }
+
+        $srcFile = Join-Path $Source $relPath
+        if (-not (Test-Path $srcFile)) {
+            # File exists in destination but not in source; preserve before /MIR deletes it
+            $targetSnapFile = Join-Path $SnapshotDir $relPath
+            $targetSnapParent = Split-Path $targetSnapFile -Parent
+            if (-not (Test-Path $targetSnapParent)) {
+                New-Item -ItemType Directory -Path $targetSnapParent -Force | Out-Null
+            }
+            Copy-Item -Path $file.FullName -Destination $targetSnapFile -Force -ErrorAction SilentlyContinue
+            $preserved.Add($relPath)
+        }
+    }
+
+    if ($preserved.Count -gt 0) {
+        Write-Host "  [Safety Snapshot] Preserved $($preserved.Count) destination-only files to $SnapshotDir before /MIR sync."
+    }
+    return @{
+        PreservedCount = $preserved.Count
+        PreservedFiles = @($preserved)
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Mirror Safety Gate
 # ---------------------------------------------------------------------------
 function Test-CategorySafeForMirror {
@@ -257,7 +337,8 @@ function Test-CategorySafeForMirror {
 # ---------------------------------------------------------------------------
 function Invoke-Checkpoint {
     param(
-        [bool]$IsFirstCheckpoint = $false
+        [bool]$IsFirstCheckpoint = $false,
+        [bool]$AllowMirror = $false
     )
 
     # Acquire atomic lock so recovery or restore cannot run concurrently.
@@ -266,6 +347,14 @@ function Invoke-Checkpoint {
     if (-not $lockHandle) {
         $info = Get-WorkstationLockInfo
         Write-Warning "[$(Get-Date)] Workstation lock held by $($info.Holder) (PID $($info.ProcessId)). Skipping checkpoint."
+        Invalidate-CheckpointBaseline -Reason "Workstation lock held by $($info.Holder)"
+        @{
+            Timestamp = (Get-Date).ToString("o")
+            Status    = "WAITING_FOR_RECOVERY"
+            Holder    = $info.Holder
+            RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        } | ConvertTo-Json | Set-Content $heartbeatLocalFile -Force -ErrorAction SilentlyContinue
+
         return [PSCustomObject]@{
             LockAcquired      = $false
             Completed         = $false
@@ -476,8 +565,12 @@ function Invoke-Checkpoint {
             Copy-Item "$rdpProfilePath\.gitconfig" -Destination $gitDest -Force -ErrorAction SilentlyContinue
         }
 
-        # Determine sync mode for AppData (destructive /MIR vs additive /E)
-        $safeForAppDataMirror = Test-CategorySafeForMirror -Category "AppData" -IsFirstCheckpoint $IsFirstCheckpoint
+        # Determine sync mode for AppData (default to additive /E for ordinary checkpointing)
+        $safeForAppDataMirror = if ($AllowMirror) {
+            Test-CategorySafeForMirror -Category "AppData" -IsFirstCheckpoint $IsFirstCheckpoint
+        } else {
+            $false
+        }
         $appDataSyncOption = if ($safeForAppDataMirror) { '/MIR' } else { '/E' }
         Write-Host "Syncing AppData using mode: $appDataSyncOption"
 
@@ -495,6 +588,11 @@ function Invoke-Checkpoint {
                     if ($srcItems.Count -eq 0 -and $destItems.Count -gt 0) {
                         Write-Warning "Source $($_.FullName) is empty while destination $dest contains $($destItems.Count) items. Downgrading sync from /MIR to /E to prevent empty-source wipe."
                         $actualSyncOption = '/E'
+                    } else {
+                        $snapshotTimestamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
+                        $snapDir = "$statePath\Archive\Snapshots\$snapshotTimestamp\AppData\Roaming\$($_.Name)"
+                        Protect-DestinationOnlyFiles -Source $_.FullName -Destination $dest -SnapshotDir $snapDir `
+                            -ExcludeDirs $robocopyExcludeDirs -ExcludeFiles $robocopyExcludeFiles | Out-Null
                     }
                 }
                 $res = Invoke-RobocopySafe -Source $_.FullName -Destination $dest `
@@ -518,6 +616,11 @@ function Invoke-Checkpoint {
                     if ($srcItems.Count -eq 0 -and $destItems.Count -gt 0) {
                         Write-Warning "Source $($_.FullName) is empty while destination $dest contains $($destItems.Count) items. Downgrading sync from /MIR to /E to prevent empty-source wipe."
                         $actualSyncOption = '/E'
+                    } else {
+                        $snapshotTimestamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
+                        $snapDir = "$statePath\Archive\Snapshots\$snapshotTimestamp\AppData\Local\$($_.Name)"
+                        Protect-DestinationOnlyFiles -Source $_.FullName -Destination $dest -SnapshotDir $snapDir `
+                            -ExcludeDirs $robocopyExcludeDirs -ExcludeFiles $robocopyExcludeFiles | Out-Null
                     }
                 }
                 $res = Invoke-RobocopySafe -Source $_.FullName -Destination $dest `
@@ -556,7 +659,11 @@ function Invoke-Checkpoint {
         }
 
         # 6. User Workspace Folders
-        $safeForUserDataMirror = Test-CategorySafeForMirror -Category "UserData" -IsFirstCheckpoint $IsFirstCheckpoint
+        $safeForUserDataMirror = if ($AllowMirror) {
+            Test-CategorySafeForMirror -Category "UserData" -IsFirstCheckpoint $IsFirstCheckpoint
+        } else {
+            $false
+        }
         $userDataSyncOption = if ($safeForUserDataMirror) { '/MIR' } else { '/E' }
         Write-Host "Syncing User Workspace using mode: $userDataSyncOption"
 
@@ -572,6 +679,10 @@ function Invoke-Checkpoint {
                     if ($srcItems.Count -eq 0 -and $destItems.Count -gt 0) {
                         Write-Warning "Source $src is empty while destination $dest contains $($destItems.Count) items. Downgrading sync from /MIR to /E to prevent empty-source wipe."
                         $actualSyncOption = '/E'
+                    } else {
+                        $snapshotTimestamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
+                        $snapDir = "$statePath\Archive\Snapshots\$snapshotTimestamp\UserData\$folder"
+                        Protect-DestinationOnlyFiles -Source $src -Destination $dest -SnapshotDir $snapDir | Out-Null
                     }
                 }
                 $res = Invoke-RobocopySafe -Source $src -Destination $dest `
@@ -602,7 +713,7 @@ function Invoke-Checkpoint {
         $overallSuccess = ($copyErrors.Count -eq 0)
         $checkpointStatus = if ($overallSuccess) { "SUCCESS" } else { "PARTIAL" }
 
-        @{
+        $hbObj = @{
             Timestamp       = (Get-Date).ToString("o")
             Status          = $checkpointStatus
             ErrorCount      = $copyErrors.Count
@@ -611,10 +722,19 @@ function Invoke-Checkpoint {
             AppDataMode     = $appDataSyncOption
             UserDataMode    = $userDataSyncOption
             FirstCheckpoint = $IsFirstCheckpoint
-        } | ConvertTo-Json -Depth 3 | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
+        }
+        $hbJson = $hbObj | ConvertTo-Json -Depth 3
+
+        # Write to local heartbeat file for workflow watchdog
+        Set-Content -Path $heartbeatLocalFile -Value $hbJson -Force -ErrorAction SilentlyContinue
+
+        # Mirror to P: storage under atomic lock
+        if (Test-Path "$statePath\Checkpoints") {
+            Set-Content -Path "$statePath\Checkpoints\heartbeat.json" -Value $hbJson -Force -ErrorAction SilentlyContinue
+        }
 
         # If additive baseline completed successfully, record baseline completion for run
-        if ($IsFirstCheckpoint -and $overallSuccess) {
+        if ($IsFirstCheckpoint -and $overallSuccess -and $appDataSuccess -and $userDataSuccess) {
             @{
                 RunId                       = $currentRunId
                 AppDataBaselineEstablished  = $appDataSuccess
@@ -622,6 +742,8 @@ function Invoke-Checkpoint {
                 EstablishedAt               = (Get-Date).ToString("o")
             } | ConvertTo-Json | Set-Content "$toolsDir\checkpoint-baseline.json" -Force
             Write-Host "Checkpoint baseline successfully recorded in checkpoint-baseline.json."
+        } elseif (-not $overallSuccess -or -not $appDataSuccess -or -not $userDataSuccess) {
+            Invalidate-CheckpointBaseline -Reason "Checkpoint completed with partial or failed operations"
         }
 
         Write-Host "[$(Get-Date)] Checkpoint finished with status $checkpointStatus (Errors: $($copyErrors.Count))."
@@ -648,89 +770,97 @@ function Invoke-Checkpoint {
 # ---------------------------------------------------------------------------
 # Loop / Execution Controller
 # ---------------------------------------------------------------------------
-if ($Loop) {
-    Write-Host "[$(Get-Date)] Starting managed background checkpoint loop (Run ID: $currentRunId)..."
-    $isFirstCheckpoint = $true
+if ($MyInvocation.InvocationName -ne '.') {
+    if ($Loop) {
+        Write-Host "[$(Get-Date)] Starting managed background checkpoint loop (Run ID: $currentRunId)..."
+        $isFirstCheckpoint = $true
 
-    # Phase 1: Wait for any active background recovery to complete
-    $lockInfo = Get-WorkstationLockInfo
-    if ($lockInfo -and $lockInfo.Holder -match 'Recovery|Restore') {
-        Write-Host "[$(Get-Date)] Workstation operation '$($lockInfo.Holder)' (PID $($lockInfo.ProcessId)) is active. Waiting for lock release..."
-        while ($true) {
-            $lockInfo = Get-WorkstationLockInfo
-            if (-not $lockInfo -or $lockInfo.Holder -notmatch 'Recovery|Restore') { break }
+        # Phase 1: Wait for any active background recovery to complete
+        $lockInfo = Get-WorkstationLockInfo
+        if ($lockInfo -and $lockInfo.Holder -match 'Recovery|Restore') {
+            Write-Host "[$(Get-Date)] Workstation operation '$($lockInfo.Holder)' (PID $($lockInfo.ProcessId)) is active. Waiting for lock release..."
+            while ($true) {
+                $lockInfo = Get-WorkstationLockInfo
+                if (-not $lockInfo -or $lockInfo.Holder -notmatch 'Recovery|Restore') { break }
 
-            @{
-                Timestamp = (Get-Date).ToString("o")
-                Status    = "WAITING_FOR_RECOVERY"
-                Holder    = $lockInfo.Holder
-                RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-            } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
-
-            Start-Sleep -Seconds 15
-        }
-        Write-Host "[$(Get-Date)] Workstation lock released. Background recovery is complete."
-    } elseif ($InitialDelaySeconds -gt 0) {
-        Write-Host "[$(Get-Date)] No active recovery lock held. Waiting initial delay ($InitialDelaySeconds seconds)..."
-        $waited = 0
-        while ($waited -lt $InitialDelaySeconds) {
-            $lockInfo = Get-WorkstationLockInfo
-            if ($lockInfo -and $lockInfo.Holder -match 'Recovery|Restore') {
-                Write-Host "[$(Get-Date)] Workstation operation '$($lockInfo.Holder)' started during delay. Waiting for completion..."
-                while ($true) {
-                    $lockInfo = Get-WorkstationLockInfo
-                    if (-not $lockInfo -or $lockInfo.Holder -notmatch 'Recovery|Restore') { break }
-
-                    @{
-                        Timestamp = (Get-Date).ToString("o")
-                        Status    = "WAITING_FOR_RECOVERY"
-                        Holder    = $lockInfo.Holder
-                        RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-                    } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
-
-                    Start-Sleep -Seconds 15
-                }
-                Write-Host "[$(Get-Date)] Workstation operation finished."
-                break
-            }
-            Start-Sleep -Seconds 15
-            $waited += 15
-        }
-    }
-
-    # Phase 2: Recurring Checkpoint Loop
-    while ($true) {
-        try {
-            $lockInfo = Get-WorkstationLockInfo
-            if ($lockInfo -and $lockInfo.Holder -match 'Recovery|Restore') {
-                Write-Host "[$(Get-Date)] Workstation operation '$($lockInfo.Holder)' active. Postponing checkpoint cycle..."
                 @{
                     Timestamp = (Get-Date).ToString("o")
                     Status    = "WAITING_FOR_RECOVERY"
                     Holder    = $lockInfo.Holder
                     RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-                } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
-            } else {
-                $ckptResult = Invoke-Checkpoint -IsFirstCheckpoint $isFirstCheckpoint
-                if ($ckptResult -and $ckptResult.OverallSuccess -and $ckptResult.AppDataSuccess -and $ckptResult.UserDataSuccess) {
-                    $isFirstCheckpoint = $false
-                    Write-Host "[$(Get-Date)] Additive baseline established and verified. Future cycles may evaluate mirror safety."
-                } else {
-                    Write-Warning "[$(Get-Date)] Checkpoint did not complete with full verification (Errors: $($ckptResult.CopyErrors.Count)). Retaining isFirstCheckpoint flag (additive /E)."
-                }
+                } | ConvertTo-Json | Set-Content $heartbeatLocalFile -Force -ErrorAction SilentlyContinue
+
+                Start-Sleep -Seconds 15
             }
-        } catch {
-            Write-Error "Checkpoint cycle error: $_"
-            @{
-                Timestamp = (Get-Date).ToString("o")
-                Status    = "FAILED"
-                Error     = "$_"
-                RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-            } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
+            Write-Host "[$(Get-Date)] Workstation lock released. Background recovery is complete."
+        } elseif ($InitialDelaySeconds -gt 0) {
+            Write-Host "[$(Get-Date)] No active recovery lock held. Waiting initial delay ($InitialDelaySeconds seconds)..."
+            $waited = 0
+            while ($waited -lt $InitialDelaySeconds) {
+                $lockInfo = Get-WorkstationLockInfo
+                if ($lockInfo -and $lockInfo.Holder -match 'Recovery|Restore') {
+                    Write-Host "[$(Get-Date)] Workstation operation '$($lockInfo.Holder)' started during delay. Waiting for completion..."
+                    while ($true) {
+                        $lockInfo = Get-WorkstationLockInfo
+                        if (-not $lockInfo -or $lockInfo.Holder -notmatch 'Recovery|Restore') { break }
+
+                        @{
+                            Timestamp = (Get-Date).ToString("o")
+                            Status    = "WAITING_FOR_RECOVERY"
+                            Holder    = $lockInfo.Holder
+                            RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                        } | ConvertTo-Json | Set-Content $heartbeatLocalFile -Force -ErrorAction SilentlyContinue
+
+                        Start-Sleep -Seconds 15
+                    }
+                    Write-Host "[$(Get-Date)] Workstation operation finished."
+                    break
+                }
+                Start-Sleep -Seconds 15
+                $waited += 15
+            }
         }
 
-        Start-Sleep -Seconds $IntervalSeconds
+        # Phase 2: Recurring Checkpoint Loop
+        while ($true) {
+            try {
+                $lockInfo = Get-WorkstationLockInfo
+                if ($lockInfo -and $lockInfo.Holder -match 'Recovery|Restore') {
+                    Write-Host "[$(Get-Date)] Workstation operation '$($lockInfo.Holder)' active. Postponing checkpoint cycle..."
+                    $isFirstCheckpoint = $true
+                    Invalidate-CheckpointBaseline -Reason "Checkpoint cycle postponed due to active $($lockInfo.Holder)"
+                    @{
+                        Timestamp = (Get-Date).ToString("o")
+                        Status    = "WAITING_FOR_RECOVERY"
+                        Holder    = $lockInfo.Holder
+                        RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                    } | ConvertTo-Json | Set-Content $heartbeatLocalFile -Force -ErrorAction SilentlyContinue
+                } else {
+                    $ckptResult = Invoke-Checkpoint -IsFirstCheckpoint $isFirstCheckpoint -AllowMirror:$AllowMirror
+                    if ($ckptResult -and $ckptResult.OverallSuccess -and $ckptResult.AppDataSuccess -and $ckptResult.UserDataSuccess) {
+                        $isFirstCheckpoint = $false
+                        Write-Host "[$(Get-Date)] Additive baseline established and verified. Future cycles may evaluate mirror safety."
+                    } else {
+                        $isFirstCheckpoint = $true
+                        Invalidate-CheckpointBaseline -Reason "Checkpoint did not complete with full verification"
+                        Write-Warning "[$(Get-Date)] Checkpoint did not complete with full verification. Re-arming safety: isFirstCheckpoint reset to `$true (additive /E)."
+                    }
+                }
+            } catch {
+                $isFirstCheckpoint = $true
+                Invalidate-CheckpointBaseline -Reason "Checkpoint cycle error: $_"
+                Write-Error "Checkpoint cycle error: $_"
+                @{
+                    Timestamp = (Get-Date).ToString("o")
+                    Status    = "FAILED"
+                    Error     = "$_"
+                    RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                } | ConvertTo-Json | Set-Content $heartbeatLocalFile -Force -ErrorAction SilentlyContinue
+            }
+
+            Start-Sleep -Seconds $IntervalSeconds
+        }
+    } else {
+        Invoke-Checkpoint -IsFirstCheckpoint $false -AllowMirror:$AllowMirror
     }
-} else {
-    Invoke-Checkpoint -IsFirstCheckpoint $false
 }

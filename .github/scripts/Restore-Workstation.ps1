@@ -156,7 +156,60 @@ try {
             & winget import -i $wingetExport --accept-package-agreements --accept-source-agreements --ignore-unavailable
             $ec = $LASTEXITCODE
             $global:LASTEXITCODE = 0
-            $report.Applications = if ($ec -eq 0) { "PASS (winget import completed successfully)" } else { "PARTIAL (winget import exit code $ec)" }
+            if ($ec -ne 0) {
+                $report.Applications = "PARTIAL (winget import exit code $ec)"
+            } else {
+                # Verify application availability in RDP user context
+                $rdpSid = $null
+                try {
+                    $rdpUser = New-Object System.Security.Principal.NTAccount("RDP")
+                    $rdpSid  = $rdpUser.Translate([System.Security.Principal.SecurityIdentifier]).Value
+                } catch {}
+
+                $machineApps = @(Get-ItemProperty @(
+                    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                    "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+                ) -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Select-Object -ExpandProperty DisplayName)
+
+                $rdpApps = @()
+                if ($rdpSid) {
+                    $rdpApps = @(Get-ItemProperty "Registry::HKEY_USERS\$rdpSid\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+                        Where-Object { $_.DisplayName } | Select-Object -ExpandProperty DisplayName)
+                }
+
+                $runnerAdminOnly = @()
+                if ($env:USERNAME -ne "RDP" -and (Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall")) {
+                    $hkcuApps = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+                        Where-Object { $_.DisplayName }
+                    foreach ($app in $hkcuApps) {
+                        $name = $app.DisplayName
+                        if ($machineApps -notcontains $name -and $rdpApps -notcontains $name) {
+                            $runnerAdminOnly += $name
+                        }
+                    }
+                }
+
+                $runnerAdminPrograms = "$env:LOCALAPPDATA\Programs"
+                $rdpPrograms = "$rdpLocalAppData\Programs"
+                if ($env:USERNAME -ne "RDP" -and (Test-Path $runnerAdminPrograms)) {
+                    $localDirs = Get-ChildItem -Path $runnerAdminPrograms -Directory -ErrorAction SilentlyContinue
+                    foreach ($dir in $localDirs) {
+                        $targetRdp = Join-Path $rdpPrograms $dir.Name
+                        if (-not (Test-Path $targetRdp) -and -not (Test-Path "C:\Program Files\$($dir.Name)") -and -not (Test-Path "C:\Program Files (x86)\$($dir.Name)")) {
+                            if ($runnerAdminOnly -notcontains $dir.Name) {
+                                $runnerAdminOnly += $dir.Name
+                            }
+                        }
+                    }
+                }
+
+                if ($runnerAdminOnly.Count -gt 0) {
+                    $sample = ($runnerAdminOnly | Select-Object -First 3) -join ", "
+                    $report.Applications = "PARTIAL (installed in runneradmin scope but not available to RDP account: $sample)"
+                } else {
+                    $report.Applications = "PASS (verified winget import completed and apps available to RDP user)"
+                }
+            }
         } else {
             $report.Applications = "SKIPPED (winget not available)"
         }
