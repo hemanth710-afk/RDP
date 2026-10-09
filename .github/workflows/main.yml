@@ -341,7 +341,7 @@ jobs:
               "Tailscale IP: $env:TAILSCALE_IP",
               "Persistent P: Drive: CONNECTED (\\100.93.61.9\PersistentStorage)",
               "Desktop Shortcuts: CREATED (P:\, AI_EDITOR, Projects, Videos, Assets, Backups)",
-              "Background Checkpoint: ACTIVE (15-minute background loop)",
+              "Background Checkpoint: ACTIVE (First run delayed 15m, then every 60m)",
               "",
               "FULL WORKSTATION RESTORE STATUS:",
               "Skipped on startup for fast RDP availability.",
@@ -366,17 +366,18 @@ jobs:
           Write-Host "NLA: Enabled (Secure TLS Layer 2)"
           Write-Host "Permanent Storage: P: -> \\100.93.61.9\PersistentStorage"
           Write-Host "Desktop Shortcuts: P:\, AI_EDITOR, Projects, Videos, Assets, Backups"
+          Write-Host "Checkpoint Schedule: First run in 15m, then every 60m (non-blocking)"
           Write-Host "Optional Full Restore: Double-click 'Run-Full-Restore.bat' on Desktop"
           Write-Host "=================================================`n"
 
           $checkpointScript = "$PWD\.github\scripts\Checkpoint-Workstation.ps1"
 
-          # Start background checkpoint loop immediately (non-blocking)
+          # Start background checkpoint loop immediately (non-blocking, first run delayed 15m, then hourly)
           $checkpointPid = $null
           if (Test-Path $checkpointScript) {
-              Write-Host "Launching background checkpoint loop (every 15 minutes)..."
+              Write-Host "Launching background checkpoint loop (first run delayed 15m, subsequent runs every 60m)..."
               $proc = Start-Process powershell.exe `
-                  -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$checkpointScript`" -Loop -IntervalSeconds 900" `
+                  -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$checkpointScript`" -Loop -InitialDelaySeconds 900 -IntervalSeconds 3600" `
                   -WindowStyle Hidden -PassThru
               $checkpointPid = $proc.Id
               Write-Host "Background checkpoint process started (PID: $checkpointPid)."
@@ -398,7 +399,7 @@ jobs:
                       if (-not $restartedCheckpoint) {
                           Write-Host "WARNING: Checkpoint process (PID $checkpointPid) terminated. Restarting..." -ForegroundColor Yellow
                           $proc = Start-Process powershell.exe `
-                              -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$checkpointScript`" -Loop -IntervalSeconds 900" `
+                              -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$checkpointScript`" -Loop -InitialDelaySeconds 0 -IntervalSeconds 3600" `
                               -WindowStyle Hidden -PassThru
                           $checkpointPid = $proc.Id
                           $restartedCheckpoint = $true
@@ -416,7 +417,7 @@ jobs:
                               Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid), reading heartbeat failed"
                           }
                       } else {
-                          Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid), awaiting first 15m checkpoint cycle"
+                          Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid) - Initial checkpoint pending (delayed by 15m for responsive RDP startup)"
                       }
                   }
               }

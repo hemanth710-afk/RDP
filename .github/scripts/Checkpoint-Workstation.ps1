@@ -1,6 +1,7 @@
 param(
     [switch]$Loop = $false,
-    [int]$IntervalSeconds = 900
+    [int]$IntervalSeconds = 3600,
+    [int]$InitialDelaySeconds = 900
 )
 
 $statePath = "P:\WorkstationState"
@@ -293,6 +294,10 @@ function Invoke-Checkpoint {
 }
 
 if ($Loop) {
+    if ($InitialDelaySeconds -gt 0) {
+        Write-Host "[$(Get-Date)] Background checkpoint loop started. Initial delay: $InitialDelaySeconds seconds before first checkpoint..."
+        Start-Sleep -Seconds $InitialDelaySeconds
+    }
     while ($true) {
         try {
             Invoke-Checkpoint
