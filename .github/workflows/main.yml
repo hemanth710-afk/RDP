@@ -276,23 +276,27 @@ jobs:
               }
           }
 
-          # 2. Stage Optional Full Restoration Script on Desktop for On-Demand Use
-          Write-Host "Staging optional full restoration launcher on desktop..."
+          # 2. Stage recovery and restore scripts for background and manual use
+          Write-Host "Staging recovery scripts..."
           $toolsDir = "C:\ProgramData\Workstation"
           if (-not (Test-Path $toolsDir)) { New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null }
+          if (Test-Path ".github\scripts\Background-Recovery.ps1") {
+              Copy-Item ".github\scripts\Background-Recovery.ps1" -Destination "$toolsDir\Background-Recovery.ps1" -Force
+          }
           if (Test-Path ".github\scripts\Restore-Workstation.ps1") {
               Copy-Item ".github\scripts\Restore-Workstation.ps1" -Destination "$toolsDir\Restore-Workstation.ps1" -Force
           }
 
+          # Place a manual re-run restore launcher on desktop (in case user wants to re-trigger)
           $restoreBatLines = @(
               "@echo off",
-              "title Optional Full Workstation Restoration",
+              "title Manual Full Workstation Restoration",
               "echo ======================================================",
-              "echo    OPTIONAL FULL WORKSTATION RESTORATION",
+              "echo    MANUAL FULL WORKSTATION RESTORATION",
               "echo ======================================================",
               "echo.",
-              "echo This will restore Winget applications, Python/Node packages,",
-              "echo and AppData settings from P:\WorkstationState.",
+              "echo Automatic recovery runs in the background after startup.",
+              "echo Use this only if you need to re-run restoration manually.",
               "echo.",
               "echo Press any key to begin restoration...",
               "pause",
@@ -306,47 +310,26 @@ jobs:
               Set-Content -Path "$dt\Run-Full-Restore.bat" -Value $restoreBatContent -Encoding ASCII
           }
 
-          # 3. Apply Lightweight Personalization if Present (Wallpaper & Theme)
-          $rdpAppData = "$rdpProfile\AppData\Roaming"
-          $startupDir = "$rdpAppData\Microsoft\Windows\Start Menu\Programs\Startup"
-          if (-not (Test-Path $startupDir)) { New-Item -ItemType Directory -Path $startupDir -Force | Out-Null }
-          $statePath = "P:\WorkstationState"
-          if ((Test-Path "$statePath\WindowsSettings\Personalize.reg") -or (Test-Path "$statePath\WindowsSettings\Wallpaper.jpg")) {
-              $ps1Lines = @(
-                  '`$sp = "P:\WorkstationState"',
-                  'if (Test-Path "`$sp\WindowsSettings\Personalize.reg") {',
-                  '    & reg import "`$sp\WindowsSettings\Personalize.reg" | Out-Null',
-                  '}',
-                  'if (Test-Path "`$sp\WindowsSettings\Wallpaper.jpg") {',
-                  '    Copy-Item "`$sp\WindowsSettings\Wallpaper.jpg" -Destination "`$env:APPDATA\Wallpaper.jpg" -Force',
-                  '    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper -Value "`$env:APPDATA\Wallpaper.jpg"',
-                  '    rundll32.exe user32.dll,UpdatePerUserSystemParameters',
-                  '}',
-                  'Remove-Item "`$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\RestorePersonalization.bat" -Force -ErrorAction SilentlyContinue',
-                  'Remove-Item "`$PSCommandPath" -Force -ErrorAction SilentlyContinue'
-              )
-              $ps1Content = $ps1Lines -join "`r`n"
-              Set-Content -Path "$startupDir\RestorePersonalization.ps1" -Value $ps1Content
-              Set-Content -Path "$startupDir\RestorePersonalization.bat" -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\RestorePersonalization.ps1`""
-              Write-Host "Lightweight wallpaper/theme queued for interactive RDP login."
-          }
-
-          # 4. Generate Fast Start Report on Desktop
+          # 3. Generate Fast Start Report on Desktop
           $fastStartLines = @(
               "=== WORKSTATION FAST START REPORT ===",
               "Timestamp: $(Get-Date)",
-              "Mode: FAST START (Zero-Copy Startup)",
+              "Mode: FAST START + AUTOMATIC BACKGROUND RECOVERY",
               "",
               "RDP Access: READY",
               "Tailscale IP: $env:TAILSCALE_IP",
               "Persistent P: Drive: CONNECTED (\\100.93.61.9\PersistentStorage)",
               "Desktop Shortcuts: CREATED (P:\, AI_EDITOR, Projects, Videos, Assets, Backups)",
-              "Background Checkpoint: ACTIVE (First run delayed 15m, then every 60m)",
               "",
-              "FULL WORKSTATION RESTORE STATUS:",
-              "Skipped on startup for fast RDP availability.",
-              "Run 'Run-Full-Restore.bat' on the Desktop anytime to install",
-              "Winget apps, Python/Node packages, and AppData."
+              "AUTOMATIC RECOVERY: LAUNCHED",
+              "  Grace period: 2 minutes after RDP ready",
+              "  Progress: See Recovery-Status.txt on Desktop",
+              "  Full log: C:\ProgramData\Workstation\Recovery.log",
+              "",
+              "BACKGROUND CHECKPOINT: ACTIVE",
+              "  First checkpoint delayed 15m, then every 60m",
+              "",
+              "MANUAL RE-RESTORE: Run-Full-Restore.bat on Desktop (if needed)"
           )
           $fastStartReport = $fastStartLines -join "`r`n"
           Set-Content -Path "$publicDesktop\Workstation-Startup-Report.txt" -Value $fastStartReport
@@ -355,7 +338,7 @@ jobs:
           $global:LASTEXITCODE = 0
           Write-Host "Fast Start Desktop Preparation Complete!"
 
-      - name: Maintain RDP Session & Checkpoint Loop
+      - name: Maintain RDP Session & Background Recovery
         run: |
           Write-Host "`n================================================="
           Write-Host "  === SECURE RDP ACCESS READY (FAST START) ==="
@@ -366,13 +349,31 @@ jobs:
           Write-Host "NLA: Enabled (Secure TLS Layer 2)"
           Write-Host "Permanent Storage: P: -> \\100.93.61.9\PersistentStorage"
           Write-Host "Desktop Shortcuts: P:\, AI_EDITOR, Projects, Videos, Assets, Backups"
+          Write-Host ""
+          Write-Host "Automatic Recovery: Starts in 2 minutes (lightweight first, heavy last)"
           Write-Host "Checkpoint Schedule: First run in 15m, then every 60m (non-blocking)"
-          Write-Host "Optional Full Restore: Double-click 'Run-Full-Restore.bat' on Desktop"
+          Write-Host "Manual Re-Restore: Double-click 'Run-Full-Restore.bat' on Desktop"
+          Write-Host "Recovery Progress: Recovery-Status.txt on Desktop"
+          Write-Host "Recovery Log: C:\ProgramData\Workstation\Recovery.log"
           Write-Host "=================================================`n"
 
           $checkpointScript = "$PWD\.github\scripts\Checkpoint-Workstation.ps1"
+          $recoveryScript   = "C:\ProgramData\Workstation\Background-Recovery.ps1"
 
-          # Start background checkpoint loop immediately (non-blocking, first run delayed 15m, then hourly)
+          # --- Launch automatic background recovery (2-minute grace period) ---
+          $recoveryPid = $null
+          if (Test-Path $recoveryScript) {
+              Write-Host "Launching automatic background recovery (2-minute grace period before phases begin)..."
+              $proc = Start-Process powershell.exe `
+                  -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$recoveryScript`" -GraceSeconds 120" `
+                  -WindowStyle Hidden -PassThru
+              $recoveryPid = $proc.Id
+              Write-Host "Background recovery process started (PID: $recoveryPid)."
+          } else {
+              Write-Host "WARNING: Background-Recovery.ps1 not found at $recoveryScript. Automatic recovery disabled."
+          }
+
+          # --- Launch background checkpoint loop (first run delayed 15m, then hourly) ---
           $checkpointPid = $null
           if (Test-Path $checkpointScript) {
               Write-Host "Launching background checkpoint loop (first run delayed 15m, subsequent runs every 60m)..."
@@ -387,12 +388,49 @@ jobs:
 
           $statePath = "P:\WorkstationState"
           $heartbeatFile = "$statePath\Checkpoints\heartbeat.json"
+          $recoveryStatusFile = "C:\ProgramData\Workstation\Recovery-Status.json"
           $restartedCheckpoint = $false
 
-          # Keep runner active and monitor checkpoint health
+          # Keep runner active and monitor checkpoint + recovery health
           while ($true) {
               Write-Host "[$(Get-Date)] Runner active - Tailscale & P: drive online"
 
+              # --- Recovery health ---
+              if ($recoveryPid) {
+                  $recoveryAlive = Get-Process -Id $recoveryPid -ErrorAction SilentlyContinue
+                  if ($recoveryAlive) {
+                      if (Test-Path $recoveryStatusFile) {
+                          try {
+                              $rs = Get-Content $recoveryStatusFile -Raw | ConvertFrom-Json
+                              $inProgress = ($rs.Phases.PSObject.Properties | Where-Object { $_.Value -match "^IN PROGRESS" }).Count
+                              $done = ($rs.Phases.PSObject.Properties | Where-Object { $_.Value -match "^(PASS|PARTIAL|SKIPPED|QUEUED)" }).Count
+                              $total = $rs.Phases.PSObject.Properties.Count
+                              Write-Host "  Recovery Health: Running (PID $recoveryPid) - $done/$total phases complete, $inProgress in progress"
+                          } catch {
+                              Write-Host "  Recovery Health: Running (PID $recoveryPid) - status file unreadable"
+                          }
+                      } else {
+                          Write-Host "  Recovery Health: Running (PID $recoveryPid) - grace period (waiting before phases start)"
+                      }
+                  } else {
+                      if (Test-Path $recoveryStatusFile) {
+                          try {
+                              $rs = Get-Content $recoveryStatusFile -Raw | ConvertFrom-Json
+                              $failed = ($rs.Phases.PSObject.Properties | Where-Object { $_.Value -match "^FAILED" }).Count
+                              $passed = ($rs.Phases.PSObject.Properties | Where-Object { $_.Value -match "^PASS" }).Count
+                              $total = $rs.Phases.PSObject.Properties.Count
+                              Write-Host "  Recovery Health: COMPLETED ($passed passed, $failed failed, $total total)"
+                          } catch {
+                              Write-Host "  Recovery Health: Process finished (PID $recoveryPid)"
+                          }
+                      } else {
+                          Write-Host "  Recovery Health: Process exited (PID $recoveryPid) - no status file found"
+                      }
+                      $recoveryPid = $null  # Stop monitoring once finished
+                  }
+              }
+
+              # --- Checkpoint health ---
               if ($checkpointPid -and (Test-Path $checkpointScript)) {
                   $alive = Get-Process -Id $checkpointPid -ErrorAction SilentlyContinue
                   if (-not $alive) {
@@ -417,10 +455,11 @@ jobs:
                               Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid), reading heartbeat failed"
                           }
                       } else {
-                          Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid) - Initial checkpoint pending (delayed by 15m for responsive RDP startup)"
+                          Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid) - Initial checkpoint pending (delayed by 15m)"
                       }
                   }
               }
 
               Start-Sleep -Seconds 300
           }
+
