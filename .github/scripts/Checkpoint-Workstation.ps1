@@ -16,7 +16,6 @@ $dirs = @(
     "$statePath\WindowsSettings",
     "$statePath\UserData"
 )
-foreach ($d in $dirs) { if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } }
 
 $toolsDir  = "C:\ProgramData\Workstation"
 $lockFile  = "$toolsDir\workstation.lock"
@@ -227,7 +226,29 @@ function Test-CategorySafeForMirror {
         return $false
     }
 
-    Write-Host "  [$Category] Recovery verified PASS in run $currentRunId. Safe for /MIR sync."
+    # Rule 6: A successful additive baseline must have been completed in THIS run
+    $baselineFile = "$toolsDir\checkpoint-baseline.json"
+    if (-not (Test-Path $baselineFile)) {
+        Write-Warning "  [$Category] Checkpoint baseline file missing. Unsafe for /MIR; falling back to additive /E."
+        return $false
+    }
+    $baselineData = $null
+    try {
+        $baselineData = Get-Content $baselineFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+    } catch {}
+
+    if (-not $baselineData -or [string]$baselineData.RunId -ne $currentRunId) {
+        Write-Warning "  [$Category] Checkpoint baseline is from a stale or mismatched run. Unsafe for /MIR; falling back to additive /E."
+        return $false
+    }
+
+    $baselineProp = "$($Category)BaselineEstablished"
+    if (-not $baselineData.$baselineProp) {
+        Write-Warning "  [$Category] Additive baseline was not successfully established. Unsafe for /MIR; falling back to additive /E."
+        return $false
+    }
+
+    Write-Host "  [$Category] Recovery verified PASS and baseline established in run $currentRunId. Safe for /MIR sync."
     return $true
 }
 
@@ -239,16 +260,37 @@ function Invoke-Checkpoint {
         [bool]$IsFirstCheckpoint = $false
     )
 
-    # Acquire atomic lock so recovery or restore cannot run concurrently
+    # Acquire atomic lock so recovery or restore cannot run concurrently.
+    # Note: NO writes to P: occur prior to acquiring this lock.
     $lockHandle = Acquire-WorkstationLock -Holder "Checkpoint" -TimeoutSeconds 0
     if (-not $lockHandle) {
         $info = Get-WorkstationLockInfo
         Write-Warning "[$(Get-Date)] Workstation lock held by $($info.Holder) (PID $($info.ProcessId)). Skipping checkpoint."
-        return
+        return [PSCustomObject]@{
+            LockAcquired      = $false
+            Completed         = $false
+            OverallSuccess    = $false
+            AppDataSuccess    = $false
+            UserDataSuccess   = $false
+            AppDataMode       = $null
+            UserDataMode      = $null
+            ErrorCount        = 1
+            CopyErrors        = @("Lock acquisition failed: lock held by another process")
+            IsFirstCheckpoint = $IsFirstCheckpoint
+        }
     }
+
+    $copyErrors = [System.Collections.Generic.List[string]]::new()
+    $appDataSuccess = $true
+    $userDataSuccess = $true
 
     try {
         Write-Host "[$(Get-Date)] Starting workstation checkpoint (FirstCheckpoint=$IsFirstCheckpoint)..."
+
+        # Now that atomic lock is held, safely ensure directories exist on P:
+        foreach ($d in $dirs) {
+            if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+        }
 
         # --- Determine RDP user profile dynamically ---
         $rdpProfilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue |
@@ -446,19 +488,47 @@ function Invoke-Checkpoint {
         if (Test-Path $rdpAppData) {
             Get-ChildItem $rdpAppData -Directory | Where-Object { $appDataExcludeDirs -notcontains $_.Name } | ForEach-Object {
                 $dest = "$statePath\AppConfigs\AppData\Roaming\$($_.Name)"
+                $actualSyncOption = $appDataSyncOption
+                if ($actualSyncOption -eq '/MIR') {
+                    $srcItems = @(Get-ChildItem $_.FullName -Force -ErrorAction SilentlyContinue)
+                    $destItems = @(Get-ChildItem $dest -Force -ErrorAction SilentlyContinue)
+                    if ($srcItems.Count -eq 0 -and $destItems.Count -gt 0) {
+                        Write-Warning "Source $($_.FullName) is empty while destination $dest contains $($destItems.Count) items. Downgrading sync from /MIR to /E to prevent empty-source wipe."
+                        $actualSyncOption = '/E'
+                    }
+                }
                 $res = Invoke-RobocopySafe -Source $_.FullName -Destination $dest `
-                    -Options @($appDataSyncOption, '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') `
+                    -Options @($actualSyncOption, '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') `
                     -ExcludeDirs $robocopyExcludeDirs -ExcludeFiles $robocopyExcludeFiles
-                if (-not $res.Success) { Write-Warning "AppData Roaming checkpoint error on $($_.Name): $($res.Error)" }
+                if (-not $res.Success) {
+                    $err = "AppData Roaming checkpoint error on $($_.Name): $($res.Error)"
+                    Write-Warning $err
+                    $copyErrors.Add($err)
+                    $appDataSuccess = $false
+                }
             }
         }
         if (Test-Path $rdpLocalAppData) {
             Get-ChildItem $rdpLocalAppData -Directory | Where-Object { $appDataExcludeDirs -notcontains $_.Name } | ForEach-Object {
                 $dest = "$statePath\AppConfigs\AppData\Local\$($_.Name)"
+                $actualSyncOption = $appDataSyncOption
+                if ($actualSyncOption -eq '/MIR') {
+                    $srcItems = @(Get-ChildItem $_.FullName -Force -ErrorAction SilentlyContinue)
+                    $destItems = @(Get-ChildItem $dest -Force -ErrorAction SilentlyContinue)
+                    if ($srcItems.Count -eq 0 -and $destItems.Count -gt 0) {
+                        Write-Warning "Source $($_.FullName) is empty while destination $dest contains $($destItems.Count) items. Downgrading sync from /MIR to /E to prevent empty-source wipe."
+                        $actualSyncOption = '/E'
+                    }
+                }
                 $res = Invoke-RobocopySafe -Source $_.FullName -Destination $dest `
-                    -Options @($appDataSyncOption, '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') `
+                    -Options @($actualSyncOption, '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS') `
                     -ExcludeDirs $robocopyExcludeDirs -ExcludeFiles $robocopyExcludeFiles
-                if (-not $res.Success) { Write-Warning "AppData Local checkpoint error on $($_.Name): $($res.Error)" }
+                if (-not $res.Success) {
+                    $err = "AppData Local checkpoint error on $($_.Name): $($res.Error)"
+                    Write-Warning $err
+                    $copyErrors.Add($err)
+                    $appDataSuccess = $false
+                }
             }
         }
 
@@ -495,9 +565,23 @@ function Invoke-Checkpoint {
             $src  = "$rdpProfilePath\$folder"
             $dest = "$statePath\UserData\$folder"
             if (Test-Path $src) {
+                $actualSyncOption = $userDataSyncOption
+                if ($actualSyncOption -eq '/MIR') {
+                    $srcItems = @(Get-ChildItem $src -Force -ErrorAction SilentlyContinue)
+                    $destItems = @(Get-ChildItem $dest -Force -ErrorAction SilentlyContinue)
+                    if ($srcItems.Count -eq 0 -and $destItems.Count -gt 0) {
+                        Write-Warning "Source $src is empty while destination $dest contains $($destItems.Count) items. Downgrading sync from /MIR to /E to prevent empty-source wipe."
+                        $actualSyncOption = '/E'
+                    }
+                }
                 $res = Invoke-RobocopySafe -Source $src -Destination $dest `
-                    -Options @($userDataSyncOption, '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS')
-                if (-not $res.Success) { Write-Warning "UserWorkspace checkpoint error on $folder`: $($res.Error)" }
+                    -Options @($actualSyncOption, '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS')
+                if (-not $res.Success) {
+                    $err = "UserWorkspace checkpoint error on $folder`: $($res.Error)"
+                    Write-Warning $err
+                    $copyErrors.Add($err)
+                    $userDataSuccess = $false
+                }
             }
         }
 
@@ -515,16 +599,45 @@ function Invoke-Checkpoint {
         }
 
         # 8. Heartbeat & Health Status
+        $overallSuccess = ($copyErrors.Count -eq 0)
+        $checkpointStatus = if ($overallSuccess) { "SUCCESS" } else { "PARTIAL" }
+
         @{
             Timestamp       = (Get-Date).ToString("o")
-            Status          = "SUCCESS"
+            Status          = $checkpointStatus
+            ErrorCount      = $copyErrors.Count
+            Errors          = @($copyErrors)
             RunTime         = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
             AppDataMode     = $appDataSyncOption
             UserDataMode    = $userDataSyncOption
             FirstCheckpoint = $IsFirstCheckpoint
-        } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
+        } | ConvertTo-Json -Depth 3 | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
 
-        Write-Host "[$(Get-Date)] Checkpoint complete (AppData: $appDataSyncOption, UserData: $userDataSyncOption)."
+        # If additive baseline completed successfully, record baseline completion for run
+        if ($IsFirstCheckpoint -and $overallSuccess) {
+            @{
+                RunId                       = $currentRunId
+                AppDataBaselineEstablished  = $appDataSuccess
+                UserDataBaselineEstablished = $userDataSuccess
+                EstablishedAt               = (Get-Date).ToString("o")
+            } | ConvertTo-Json | Set-Content "$toolsDir\checkpoint-baseline.json" -Force
+            Write-Host "Checkpoint baseline successfully recorded in checkpoint-baseline.json."
+        }
+
+        Write-Host "[$(Get-Date)] Checkpoint finished with status $checkpointStatus (Errors: $($copyErrors.Count))."
+
+        return [PSCustomObject]@{
+            LockAcquired      = $true
+            Completed         = $true
+            OverallSuccess    = $overallSuccess
+            AppDataSuccess    = $appDataSuccess
+            UserDataSuccess   = $userDataSuccess
+            AppDataMode       = $appDataSyncOption
+            UserDataMode      = $userDataSyncOption
+            ErrorCount        = $copyErrors.Count
+            CopyErrors        = @($copyErrors)
+            IsFirstCheckpoint = $IsFirstCheckpoint
+        }
     }
     finally {
         Release-WorkstationLock -LockHandle $lockHandle
@@ -588,7 +701,6 @@ if ($Loop) {
     # Phase 2: Recurring Checkpoint Loop
     while ($true) {
         try {
-            # Ensure lock is not held by another operation before invoking
             $lockInfo = Get-WorkstationLockInfo
             if ($lockInfo -and $lockInfo.Holder -match 'Recovery|Restore') {
                 Write-Host "[$(Get-Date)] Workstation operation '$($lockInfo.Holder)' active. Postponing checkpoint cycle..."
@@ -599,8 +711,13 @@ if ($Loop) {
                     RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
                 } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
             } else {
-                Invoke-Checkpoint -IsFirstCheckpoint $isFirstCheckpoint
-                $isFirstCheckpoint = $false
+                $ckptResult = Invoke-Checkpoint -IsFirstCheckpoint $isFirstCheckpoint
+                if ($ckptResult -and $ckptResult.OverallSuccess -and $ckptResult.AppDataSuccess -and $ckptResult.UserDataSuccess) {
+                    $isFirstCheckpoint = $false
+                    Write-Host "[$(Get-Date)] Additive baseline established and verified. Future cycles may evaluate mirror safety."
+                } else {
+                    Write-Warning "[$(Get-Date)] Checkpoint did not complete with full verification (Errors: $($ckptResult.CopyErrors.Count)). Retaining isFirstCheckpoint flag (additive /E)."
+                }
             }
         } catch {
             Write-Error "Checkpoint cycle error: $_"
