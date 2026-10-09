@@ -277,9 +277,18 @@ jobs:
           }
 
           # 2. Stage recovery and restore scripts for background and manual use
-          Write-Host "Staging recovery scripts..."
+          Write-Host "Staging recovery scripts and initializing run metadata..."
           $toolsDir = "C:\ProgramData\Workstation"
           if (-not (Test-Path $toolsDir)) { New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null }
+          icacls $toolsDir /grant "*S-1-5-32-545:(OI)(CI)F" /Q 2>$null
+
+          $runId = if ($env:GITHUB_RUN_ID) { "$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)" } else { (New-Guid).ToString() }
+          @{
+              RunId          = $runId
+              RunnerHostname = $env:COMPUTERNAME
+              StartedAt      = (Get-Date).ToString("o")
+          } | ConvertTo-Json | Set-Content "$toolsDir\current-run.json" -Force
+
           if (Test-Path ".github\scripts\Background-Recovery.ps1") {
               Copy-Item ".github\scripts\Background-Recovery.ps1" -Destination "$toolsDir\Background-Recovery.ps1" -Force
           }
@@ -453,9 +462,11 @@ jobs:
                           try {
                               $hb = Get-Content $heartbeatFile -Raw | ConvertFrom-Json
                               if ($hb.Status -eq "WAITING_FOR_RECOVERY") {
-                                  Write-Host "  Checkpoint Health: Waiting for background recovery to complete..."
+                                  $holderStr = if ($hb.Holder) { " for $($hb.Holder)" } else { "" }
+                                  Write-Host "  Checkpoint Health: Waiting$holderStr to complete (atomic lock active)..."
                               } else {
-                                  Write-Host "  Checkpoint Health: Status=$($hb.Status), LastCompleted=$($hb.RunTime)"
+                                  $modeStr = if ($hb.AppDataMode -and $hb.UserDataMode) { " (AppData: $($hb.AppDataMode), UserData: $($hb.UserDataMode))" } else { "" }
+                                  Write-Host "  Checkpoint Health: Status=$($hb.Status), LastCompleted=$($hb.RunTime)$modeStr"
                               }
                           } catch {
                               Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid), reading heartbeat failed"

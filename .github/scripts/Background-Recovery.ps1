@@ -4,26 +4,25 @@
 
 .DESCRIPTION
     Runs sequentially through recovery phases after a configurable grace period.
-    Each phase is independent and idempotent. Progress is logged to a file and
+    Each phase is independent, verified, and idempotent. Progress is logged to a file and
     a structured status report is maintained on the desktop.
 
     Phases run in order from lightest to heaviest:
-      1. Git/SSH config (instant)
-      2. Browser bookmarks/preferences (instant)
-      3. AppData settings (robocopy, moderate)
-      4. User workspace folders (robocopy, moderate)
-      5. Personalization (instant)
-      6. Winget application installation (heavy, network)
-      7. Python packages (heavy, network)
-      8. NPM global packages (heavy, network)
+      1. Git config (instant)
+      2. SSH config (instant)
+      3. Chrome bookmarks/preferences (instant)
+      4. Edge bookmarks/preferences (instant)
+      5. Firefox bookmarks (instant)
+      6. AppData settings (robocopy /E, moderate)
+      7. User workspace folders (robocopy /E, moderate)
+      8. Personalization (instant)
+      9. Winget application installation (heavy, network)
+     10. Python packages (heavy, network)
+     11. NPM global packages (heavy, network)
 
-    This script is launched as a background process by the workflow.
-    It coordinates with Checkpoint-Workstation.ps1 via a lock file and process liveness
-    to ensure destructive checkpoint mirrors never execute while recovery is active.
-
-.PARAMETER GraceSeconds
-    Seconds to wait before starting recovery. Default 120 (2 minutes).
-    Allows the user to connect and begin working before recovery starts.
+    This script holds an atomic OS-level file lock on C:\ProgramData\Workstation\workstation.lock
+    for the entire duration of the recovery operation, ensuring Checkpoint-Workstation.ps1
+    never runs destructive mirror operations while recovery is in progress.
 #>
 
 param(
@@ -31,22 +30,132 @@ param(
 )
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Common Configuration & Helpers
 # ---------------------------------------------------------------------------
 $statePath     = "P:\WorkstationState"
 $toolsDir      = "C:\ProgramData\Workstation"
-$lockFile      = "$toolsDir\recovery.lock"
 $logFile       = "$toolsDir\Recovery.log"
 $statusFile    = "$toolsDir\Recovery-Status.json"
 $desktopReport = "C:\Users\Public\Desktop\Recovery-Status.txt"
+$lockFile      = "$toolsDir\workstation.lock"
 
-if (-not (Test-Path $toolsDir)) { New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null }
+if (-not (Test-Path $toolsDir)) {
+    New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+    icacls $toolsDir /grant "*S-1-5-32-545:(OI)(CI)F" /Q 2>$null
+}
 
-# Acquire lock immediately so Checkpoint-Workstation.ps1 recognizes recovery is active
-$PID | Set-Content -Path $lockFile -Force
+function Get-CurrentRunId {
+    $runInfoFile = "$toolsDir\current-run.json"
+    if (Test-Path $runInfoFile) {
+        try {
+            $info = Get-Content $runInfoFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+            if ($info.RunId) { return [string]$info.RunId }
+        } catch {}
+    }
+    if ($env:GITHUB_RUN_ID) {
+        return "$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
+    }
+    return "manual-$PID"
+}
+
+$currentRunId = Get-CurrentRunId
 
 # ---------------------------------------------------------------------------
-# Logging helper
+# Atomic Process Lock Implementation
+# ---------------------------------------------------------------------------
+function Acquire-WorkstationLock {
+    param(
+        [Parameter(Mandatory=$true)][string]$Holder,
+        [int]$TimeoutSeconds = 0,
+        [int]$RetryIntervalSeconds = 2
+    )
+    $startTime = Get-Date
+    while ($true) {
+        try {
+            $fileStream = [System.IO.File]::Open(
+                $lockFile,
+                [System.IO.FileMode]::OpenOrCreate,
+                [System.IO.FileAccess]::ReadWrite,
+                [System.IO.FileShare]::Read
+            )
+
+            # Exclusive write handle acquired. Write lock metadata.
+            $fileStream.SetLength(0)
+            $writer = New-Object System.IO.StreamWriter($fileStream, [System.Text.Encoding]::UTF8)
+            $meta = @{
+                Holder     = $Holder
+                ProcessId  = $PID
+                AcquiredAt = (Get-Date).ToString("o")
+                RunId      = $currentRunId
+            } | ConvertTo-Json -Compress
+            $writer.WriteLine($meta)
+            $writer.Flush()
+
+            return $fileStream
+        } catch [System.IO.IOException] {
+            if ($TimeoutSeconds -le 0 -or ((Get-Date) - $startTime).TotalSeconds -ge $TimeoutSeconds) {
+                return $null
+            }
+            Start-Sleep -Seconds $RetryIntervalSeconds
+        } catch {
+            Write-Warning "Failed acquiring workstation lock: $_"
+            return $null
+        }
+    }
+}
+
+function Release-WorkstationLock {
+    param([System.IO.FileStream]$LockHandle)
+    if ($LockHandle) {
+        try {
+            $LockHandle.Close()
+            $LockHandle.Dispose()
+        } catch {}
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Safe Robocopy Helper (Exit codes 0-7 = Success, 8+ = Failure)
+# ---------------------------------------------------------------------------
+function Invoke-RobocopySafe {
+    param(
+        [Parameter(Mandatory=$true)][string]$Source,
+        [Parameter(Mandatory=$true)][string]$Destination,
+        [string[]]$Options = @('/E', '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS'),
+        [string[]]$ExcludeDirs = @(),
+        [string[]]$ExcludeFiles = @()
+    )
+    if (-not (Test-Path $Source)) {
+        return @{ Success = $false; ExitCode = -1; Error = "Source directory missing: $Source" }
+    }
+    if (-not (Test-Path $Destination)) {
+        New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    }
+
+    $allArgs = @($Source, $Destination) + $Options
+    if ($ExcludeDirs -and $ExcludeDirs.Count -gt 0) {
+        $allArgs += '/XD'
+        $allArgs += $ExcludeDirs
+    }
+    if ($ExcludeFiles -and $ExcludeFiles.Count -gt 0) {
+        $allArgs += '/XF'
+        $allArgs += $ExcludeFiles
+    }
+
+    & robocopy.exe @allArgs | Out-Null
+    $ec = $LASTEXITCODE
+    $global:LASTEXITCODE = 0  # Reset so runner does not fail
+
+    $isSuccess = ($ec -ge 0 -and $ec -lt 8)
+    return @{
+        Success  = $isSuccess
+        ExitCode = $ec
+        Error    = if (-not $isSuccess) { "Robocopy failed with exit code $ec" } else { $null }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Logging & Status Tracking
 # ---------------------------------------------------------------------------
 function Write-Log {
     param([string]$Message)
@@ -56,9 +165,6 @@ function Write-Log {
     Add-Content -Path $logFile -Value $line -ErrorAction SilentlyContinue
 }
 
-# ---------------------------------------------------------------------------
-# Status tracking
-# ---------------------------------------------------------------------------
 $phases = [ordered]@{
     GitConfig       = "PENDING"
     SSHConfig       = "PENDING"
@@ -73,18 +179,25 @@ $phases = [ordered]@{
     NpmPackages     = "PENDING"
 }
 
+$recoveryStartTime = (Get-Date).ToString("o")
+
 function Save-Status {
     param([switch]$IsFinal)
     $status = [ordered]@{
-        LastUpdated = (Get-Date).ToString("o")
-        Completed   = [bool]$IsFinal
-        Phases      = $phases
+        RunId          = $currentRunId
+        RunnerHostname = $env:COMPUTERNAME
+        StartedAt      = $recoveryStartTime
+        LastUpdated    = (Get-Date).ToString("o")
+        CompletedAt    = if ($IsFinal) { (Get-Date).ToString("o") } else { $null }
+        Completed      = [bool]$IsFinal
+        Phases         = $phases
     }
     $status | ConvertTo-Json -Depth 3 | Set-Content $statusFile -Force -ErrorAction SilentlyContinue
 
     # Write human-readable desktop report
     $lines = @(
         "=== AUTOMATIC RECOVERY STATUS ==="
+        "Run ID: $currentRunId"
         "Last Updated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         "Log: $logFile"
         ""
@@ -115,9 +228,6 @@ function Save-Status {
     ($lines -join "`r`n") | Set-Content $desktopReport -Force -ErrorAction SilentlyContinue
 }
 
-# ---------------------------------------------------------------------------
-# RDP user profile detection
-# ---------------------------------------------------------------------------
 function Get-RdpProfile {
     $prof = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue |
         Where-Object { $_.ProfileImagePath -match "\\RDP$" } |
@@ -126,9 +236,6 @@ function Get-RdpProfile {
     return [string]$prof
 }
 
-# ---------------------------------------------------------------------------
-# Phase runner helper
-# ---------------------------------------------------------------------------
 function Invoke-Phase {
     param(
         [string]$Name,
@@ -138,20 +245,16 @@ function Invoke-Phase {
     $phases[$Name] = "IN PROGRESS"
     Save-Status
     try {
-        # Execute action and capture all output to prevent pipeline leakage
         $rawOutput = @(& $Action)
-
-        # Filter for non-empty string representations (suppressing leaked objects)
         $stringOutputs = @($rawOutput | Where-Object { $null -ne $_ -and "$_".Trim() -ne "" } | ForEach-Object { "$_".Trim() })
 
         if ($stringOutputs.Count -gt 0) {
-            # The explicit return from the scriptblock is the last emitted string
             $result = $stringOutputs[-1]
         } else {
             $result = "PASS"
         }
 
-        # Normalize strictly to a single-line trimmed string
+        # Normalize strictly to single-line string
         $result = ($result -replace "[\r\n]+", " ").Trim()
         $phases[$Name] = [string]$result
         Write-Log "--- Phase: $Name --- $result"
@@ -164,16 +267,23 @@ function Invoke-Phase {
 }
 
 # ===========================================================================
-# MAIN EXECUTION
+# MAIN EXECUTION (Protected by Atomic Lock)
 # ===========================================================================
 
-try {
-    Write-Log "========================================="
-    Write-Log "AUTOMATIC BACKGROUND RECOVERY STARTED"
-    Write-Log "PID: $PID"
-    Write-Log "Grace period: $GraceSeconds seconds"
-    Write-Log "========================================="
+Write-Log "========================================="
+Write-Log "AUTOMATIC BACKGROUND RECOVERY INITIALIZING"
+Write-Log "PID: $PID | Run ID: $currentRunId"
+Write-Log "Grace period: $GraceSeconds seconds"
+Write-Log "========================================="
 
+# Acquire atomic lock for the entire duration of recovery
+$lockHandle = Acquire-WorkstationLock -Holder "Background-Recovery" -TimeoutSeconds 10
+if (-not $lockHandle) {
+    Write-Log "ERROR: Could not acquire workstation lock. Another process is active. Aborting recovery."
+    exit 1
+}
+
+try {
     # Check prerequisite
     if (-not (Test-Path $statePath)) {
         Write-Log "No workstation state found at $statePath. Nothing to recover."
@@ -182,7 +292,7 @@ try {
         return
     }
 
-    # Grace period — let the user connect first
+    # Grace period — allow interactive user to connect first
     if ($GraceSeconds -gt 0) {
         Write-Log "Waiting $GraceSeconds seconds before starting recovery..."
         Save-Status
@@ -198,9 +308,14 @@ try {
     # PHASE 1: Git config (lightweight, instant)
     # ---------------------------------------------------------------------------
     Invoke-Phase -Name "GitConfig" -Action {
-        if (Test-Path "$appConfigs\Git\.gitconfig") {
-            Copy-Item "$appConfigs\Git\.gitconfig" -Destination "$rdpProfile\.gitconfig" -Force | Out-Null
-            return "PASS (restored .gitconfig)"
+        $src = "$appConfigs\Git\.gitconfig"
+        $dst = "$rdpProfile\.gitconfig"
+        if (Test-Path $src) {
+            Copy-Item $src -Destination $dst -Force | Out-Null
+            if ((Test-Path $dst) -and (Get-Item $dst).Length -gt 0) {
+                return "PASS (verified .gitconfig restored)"
+            }
+            return "FAILED (.gitconfig copy produced missing or empty file)"
         }
         return "SKIPPED (no .gitconfig in checkpoint)"
     }
@@ -209,11 +324,16 @@ try {
     # PHASE 2: SSH config (lightweight, instant)
     # ---------------------------------------------------------------------------
     Invoke-Phase -Name "SSHConfig" -Action {
-        if (Test-Path "$appConfigs\SSH") {
+        $srcDir = "$appConfigs\SSH"
+        if (Test-Path $srcDir) {
             $sshDir = "$rdpProfile\.ssh"
             if (-not (Test-Path $sshDir)) { New-Item -ItemType Directory -Path $sshDir -Force | Out-Null }
-            Copy-Item "$appConfigs\SSH\*" -Destination "$sshDir\" -Recurse -Force | Out-Null
-            return "PASS (config + known_hosts; NO private keys)"
+            Copy-Item "$srcDir\*" -Destination "$sshDir\" -Recurse -Force | Out-Null
+            $items = Get-ChildItem $sshDir -ErrorAction SilentlyContinue
+            if ($items -and $items.Count -gt 0) {
+                return "PASS (verified config + known_hosts restored; NO private keys)"
+            }
+            return "FAILED (SSH files missing after copy)"
         }
         return "SKIPPED (no SSH config in checkpoint)"
     }
@@ -227,7 +347,11 @@ try {
         if (Test-Path $src) {
             if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }
             Copy-Item "$src\*" -Destination $dst -Force | Out-Null
-            return "PASS (Bookmarks + Preferences)"
+            $files = Get-ChildItem $dst -ErrorAction SilentlyContinue
+            if ($files -and $files.Count -gt 0) {
+                return "PASS (verified Bookmarks + Preferences restored)"
+            }
+            return "FAILED (Chrome profile files missing after copy)"
         }
         return "SKIPPED (no checkpoint data)"
     }
@@ -241,7 +365,11 @@ try {
         if (Test-Path $src) {
             if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }
             Copy-Item "$src\*" -Destination $dst -Force | Out-Null
-            return "PASS (Bookmarks + Preferences)"
+            $files = Get-ChildItem $dst -ErrorAction SilentlyContinue
+            if ($files -and $files.Count -gt 0) {
+                return "PASS (verified Bookmarks + Preferences restored)"
+            }
+            return "FAILED (Edge profile files missing after copy)"
         }
         return "SKIPPED (no checkpoint data)"
     }
@@ -257,7 +385,10 @@ try {
                 Where-Object Name -match "default-release" | Select-Object -First 1
             if ($ffTarget) {
                 Copy-Item "$src\places.sqlite" -Destination $ffTarget.FullName -Force -ErrorAction SilentlyContinue | Out-Null
-                return "PASS (places.sqlite / Bookmarks)"
+                if (Test-Path "$($ffTarget.FullName)\places.sqlite") {
+                    return "PASS (verified places.sqlite / Bookmarks restored)"
+                }
+                return "FAILED (places.sqlite copy failed)"
             }
             return "PARTIAL (checkpoint exists but Firefox profile not yet created; run Firefox once)"
         }
@@ -265,50 +396,77 @@ try {
     }
 
     # ---------------------------------------------------------------------------
-    # PHASE 6: AppData Roaming + Local (moderate — robocopy over SMB)
+    # PHASE 6: AppData Roaming + Local (moderate — additive /E robocopy)
     # ---------------------------------------------------------------------------
     Invoke-Phase -Name "AppDataSync" -Action {
-        $restored = $false
+        $attempted = 0
+        $failed = 0
+        $restoredDirs = 0
+
         if (Test-Path "$appConfigs\AppData\Roaming") {
             Get-ChildItem "$appConfigs\AppData\Roaming" -Directory | ForEach-Object {
+                $attempted++
                 $dest = "$rdpAppData\$($_.Name)"
-                if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-                & robocopy $_.FullName $dest /E /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+                $res = Invoke-RobocopySafe -Source $_.FullName -Destination $dest -Options @('/E', '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS')
+                if ($res.Success) { $restoredDirs++ } else { $failed++; Write-Log "AppData Roaming copy failed for $($_.Name): $($res.Error)" }
             }
-            $restored = $true
         }
         if (Test-Path "$appConfigs\AppData\Local") {
             Get-ChildItem "$appConfigs\AppData\Local" -Directory | ForEach-Object {
+                $attempted++
                 $dest = "$rdpLocalAppData\$($_.Name)"
-                if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-                & robocopy $_.FullName $dest /E /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+                $res = Invoke-RobocopySafe -Source $_.FullName -Destination $dest -Options @('/E', '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS')
+                if ($res.Success) { $restoredDirs++ } else { $failed++; Write-Log "AppData Local copy failed for $($_.Name): $($res.Error)" }
             }
-            $restored = $true
         }
-        $global:LASTEXITCODE = 0
-        if ($restored) { return "PASS (additive /E copy; fresh-profile files preserved)" }
-        return "SKIPPED (no AppData in checkpoint)"
+
+        if ($attempted -eq 0) {
+            return "SKIPPED (no AppData in checkpoint)"
+        }
+        if ($failed -eq 0) {
+            return "PASS (verified additive /E copy across $restoredDirs application directories)"
+        }
+        if ($restoredDirs -gt 0) {
+            return "PARTIAL ($restoredDirs of $attempted directories restored, $failed had errors)"
+        }
+        return "FAILED (all $attempted directory restore attempts failed)"
     }
 
     # ---------------------------------------------------------------------------
-    # PHASE 7: User workspace folders (moderate — robocopy over SMB)
+    # PHASE 7: User workspace folders (moderate — additive /E robocopy)
     # ---------------------------------------------------------------------------
     Invoke-Phase -Name "UserWorkspace" -Action {
         $folders = @("Desktop","Documents","Downloads","Pictures","Music","Videos",
                      "Favorites","Links","Contacts","Saved Games","3D Objects","Searches")
-        $count = 0
+        $foundOnP = 0
+        $restored = 0
+        $failed = 0
+
         foreach ($folder in $folders) {
             $src  = "$statePath\UserData\$folder"
             $dest = "$rdpProfile\$folder"
             if (Test-Path $src) {
-                if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-                & robocopy $src $dest /E /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
-                $count++
+                $foundOnP++
+                $res = Invoke-RobocopySafe -Source $src -Destination $dest -Options @('/E', '/COPY:DT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS')
+                if ($res.Success) {
+                    $restored++
+                } else {
+                    $failed++
+                    Write-Log "UserWorkspace copy failed for $folder`: $($res.Error)"
+                }
             }
         }
-        $global:LASTEXITCODE = 0
-        if ($count -gt 0) { return "PASS ($count of $($folders.Count) folders restored)" }
-        return "SKIPPED (no UserData checkpoint found)"
+
+        if ($foundOnP -eq 0) {
+            return "SKIPPED (no UserData checkpoint found)"
+        }
+        if ($failed -eq 0) {
+            return "PASS (verified $restored of $foundOnP folders restored additively)"
+        }
+        if ($restored -gt 0) {
+            return "PARTIAL ($restored of $foundOnP folders restored; $failed failed)"
+        }
+        return "FAILED (all $foundOnP workspace folder copies failed)"
     }
 
     # ---------------------------------------------------------------------------
@@ -334,7 +492,11 @@ try {
             )
             Set-Content -Path "$startupDir\RestorePersonalization.ps1" -Value ($ps1Lines -join "`r`n")
             Set-Content -Path "$startupDir\RestorePersonalization.bat" -Value 'powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\RestorePersonalization.ps1"'
-            return "QUEUED (wallpaper/theme will apply at first interactive RDP login)"
+
+            if (Test-Path "$startupDir\RestorePersonalization.ps1") {
+                return "QUEUED (verified startup script injected for first RDP login)"
+            }
+            return "FAILED (failed writing startup personalization script)"
         }
         return "SKIPPED (no wallpaper or theme data in checkpoint)"
     }
@@ -349,8 +511,8 @@ try {
                 & winget import -i $manifest --accept-package-agreements --accept-source-agreements --ignore-unavailable 2>&1 | Out-Null
                 $ec = $LASTEXITCODE
                 $global:LASTEXITCODE = 0
-                if ($ec -eq 0) { return "PASS (winget import completed)" }
-                return "PARTIAL (winget import exit code $ec; some packages may have failed)"
+                if ($ec -eq 0) { return "PASS (verified winget import completed successfully)" }
+                return "PARTIAL (winget import exited with code $ec; some packages may require manual install)"
             }
             return "SKIPPED (winget not available on this runner)"
         }
@@ -374,13 +536,13 @@ try {
                 & $pipExe.Path install -r $pyPkgs --quiet 2>&1 | Out-Null
                 $ec = $LASTEXITCODE
                 $global:LASTEXITCODE = 0
-                if ($ec -eq 0) { return "PASS (packages reinstalled)" }
-                return "PARTIAL (pip exit code $ec)"
+                if ($ec -eq 0) { return "PASS (verified python packages installed)" }
+                return "PARTIAL (pip install exit code $ec)"
             } elseif (Get-Command pip -ErrorAction SilentlyContinue) {
                 & pip install -r $pyPkgs --quiet 2>&1 | Out-Null
                 $ec = $LASTEXITCODE
                 $global:LASTEXITCODE = 0
-                if ($ec -eq 0) { return "PASS (packages reinstalled via system pip)" }
+                if ($ec -eq 0) { return "PASS (verified python packages installed via system pip)" }
                 return "PARTIAL (pip exit code $ec)"
             }
             return "SKIPPED (pip not found; Python may not be installed yet)"
@@ -421,7 +583,7 @@ try {
                 }
                 $global:LASTEXITCODE = 0
                 if ($failed.Count -eq 0) {
-                    return "PASS ($($packages.Count) global packages reinstalled)"
+                    return "PASS (verified $($packages.Count) global packages reinstalled)"
                 }
                 return "PARTIAL ($($packages.Count - $failed.Count)/$($packages.Count) installed; failed: $($failed -join ', '))"
             }
@@ -439,7 +601,7 @@ try {
     Save-Status -IsFinal
 }
 finally {
-    # Release lock so Checkpoint-Workstation.ps1 can proceed with regular checkpointing
-    Remove-Item -Path $lockFile -Force -ErrorAction SilentlyContinue
+    # Release atomic lock so Checkpoint-Workstation.ps1 can safely begin
+    Release-WorkstationLock -LockHandle $lockHandle
     $global:LASTEXITCODE = 0
 }
