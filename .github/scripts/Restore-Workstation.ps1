@@ -1,10 +1,16 @@
-$statePath = "P:\WorkstationState"
-if (-not (Test-Path $statePath)) {
-    Write-Host "No workstation state found at $statePath. Skipping restore."
-    exit 0
-}
+$toolsDir = "C:\ProgramData\Workstation"
+if (-not (Test-Path $toolsDir)) { New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null }
+$lockFile = "$toolsDir\recovery.lock"
+$PID | Set-Content -Path $lockFile -Force
 
-Write-Host "=== STARTING WORKSTATION RESTORATION ==="
+try {
+    $statePath = "P:\WorkstationState"
+    if (-not (Test-Path $statePath)) {
+        Write-Host "No workstation state found at $statePath. Skipping restore."
+        exit 0
+    }
+
+    Write-Host "=== STARTING WORKSTATION RESTORATION ==="
 
 # --- Determine RDP user profile dynamically ---
 $rdpProfilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue |
@@ -304,4 +310,7 @@ P:\AI_EDITOR, P:\Videos, P:\Projects, P:\Assets, P:\Backups: UNCHANGED
 Set-Content -Path $reportFile -Value $reportContent
 Write-Host "=== RESTORATION COMPLETE ==="
 Write-Host "Report written to: $reportFile"
-$global:LASTEXITCODE = 0
+} finally {
+    Remove-Item -Path $lockFile -Force -ErrorAction SilentlyContinue
+    $global:LASTEXITCODE = 0
+}

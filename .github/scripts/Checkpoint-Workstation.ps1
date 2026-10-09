@@ -18,12 +18,61 @@ $dirs = @(
 )
 foreach ($d in $dirs) { if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } }
 
+# ---------------------------------------------------------------------------
+# Recovery coordination helper
+# ---------------------------------------------------------------------------
+function Test-RecoveryActive {
+    # 1. Check lock file written by Background-Recovery.ps1 or Restore-Workstation.ps1
+    $lockFile = "C:\ProgramData\Workstation\recovery.lock"
+    if (Test-Path $lockFile) {
+        try {
+            $lockPid = (Get-Content $lockFile -Raw -ErrorAction SilentlyContinue).Trim()
+            if ($lockPid -match '^\d+$') {
+                $proc = Get-Process -Id ([int]$lockPid) -ErrorAction SilentlyContinue
+                if ($proc) { return $true }
+            }
+            # Remove stale lock if PID is dead
+            Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+        } catch {}
+    }
+
+    # 2. Check if recovery script processes are actively running
+    $recoveryProcs = Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%Background-Recovery.ps1%' OR CommandLine LIKE '%Restore-Workstation.ps1%'" -ErrorAction SilentlyContinue
+    if ($recoveryProcs) {
+        $otherProcs = @($recoveryProcs | Where-Object { $_.ProcessId -ne $PID })
+        if ($otherProcs.Count -gt 0) { return $true }
+    }
+
+    # 3. Check Recovery-Status.json: if it exists, is it marked completed or are phases still pending/in progress?
+    $statusFile = "C:\ProgramData\Workstation\Recovery-Status.json"
+    if (Test-Path $statusFile) {
+        try {
+            $statusData = Get-Content $statusFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+            if ($statusData -and $statusData.Phases -and -not $statusData.Completed) {
+                $pendingOrActive = @($statusData.Phases.PSObject.Properties | Where-Object { [string]$_.Value -match '^(PENDING|IN PROGRESS)' })
+                if ($pendingOrActive.Count -gt 0) {
+                    if ($otherProcs -and $otherProcs.Count -gt 0) { return $true }
+                }
+            }
+        } catch {}
+    }
+
+    return $false
+}
+
 function Invoke-Checkpoint {
+    # Safety guard: NEVER run checkpoint mirror operations while recovery is active
+    if (Test-RecoveryActive) {
+        Write-Warning "[$(Get-Date)] Workstation recovery is currently active. Aborting checkpoint to prevent destructive mirror operations against persistent state."
+        return
+    }
+
     Write-Host "[$(Get-Date)] Starting workstation checkpoint..."
 
     # --- Determine RDP user profile dynamically ---
     $rdpProfilePath = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue |
-        Where-Object { $_.ProfileImagePath -match "\\RDP$" }).ProfileImagePath
+        Where-Object { $_.ProfileImagePath -match "\\RDP$" } |
+        Select-Object -First 1).ProfileImagePath
     if (-not $rdpProfilePath) { $rdpProfilePath = "C:\Users\RDP" }
 
     $rdpAppData      = "$rdpProfilePath\AppData\Roaming"
@@ -34,6 +83,13 @@ function Invoke-Checkpoint {
         $rdpUser = New-Object System.Security.Principal.NTAccount("RDP")
         $rdpSid  = $rdpUser.Translate([System.Security.Principal.SecurityIdentifier]).Value
     } catch {}
+
+    # Check recovery status file to avoid mirroring failed/partial recovery areas
+    $statusFile = "C:\ProgramData\Workstation\Recovery-Status.json"
+    $recStatus = $null
+    if (Test-Path $statusFile) {
+        try { $recStatus = Get-Content $statusFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json } catch {}
+    }
 
     # 1. Machine Inventory
     $os    = Get-CimInstance Win32_OperatingSystem
@@ -88,12 +144,6 @@ function Invoke-Checkpoint {
     $appManifest | ConvertTo-Json -Depth 5 | Set-Content "$statePath\Apps\Inventory\installed-apps.json"
 
     # 3. Development Environment — RDP user context
-    # We do NOT simply call python/node/git here, because the checkpoint
-    # runs as the GitHub Actions runner service account (runneradmin).
-    # Instead, we discover what is installed FOR the RDP user by:
-    #   a) Scanning PATH-like locations under the RDP user profile directory.
-    #   b) Scanning standard per-user installation locations.
-    #   c) Falling back to system-wide executables where unambiguous.
     Write-Host "Inventorying development environment (RDP user context)..."
 
     $devEnv = @{ ContextNote = "Collected from RDP user paths and system-wide installations" }
@@ -216,22 +266,28 @@ function Invoke-Checkpoint {
     }
 
     # Generalized AppData sync — checkpoint side uses /MIR so the USB mirror
-    # reflects the current application state exactly.
-    # Sensitive/system/large directories are skipped at the top level.
-    $appDataExcludeDirs  = @("Microsoft", "Temp", "Packages", "CrashDumps", "Comms", "ConnectedDevicesPlatform", "Google", "Mozilla")
-    $robocopyExcludeDirs = @("Cache", "Caches", "Code Cache", "GPUCache", "DawnCache", "Session Storage", "Local Storage", "IndexedDB", "Service Worker", "Network", "Crashpad", "CrashReports", "logs", "Log", "Auth", "Authentication", "Credentials", "Tokens", "Keychains")
-    $robocopyExcludeFiles = @("Cookies", "Cookies-journal", "Login Data", "Login Data-journal", "Web Data", "Web Data-journal", "*token*", "*.pem", "*.key", "id_rsa*", "id_ed25519*", "credentials.json", "auth.json", "secrets.json", "*.kdbx", "*.log", ".env")
+    # reflects the current application state accurately.
+    # Guard: never run destructive mirror if recovery is active or if recovery AppDataSync failed.
+    if (Test-RecoveryActive) {
+        Write-Warning "[$(Get-Date)] Recovery is active. Skipping AppData /MIR checkpoint."
+    } elseif ($recStatus -and $recStatus.Phases.AppDataSync -match '^FAILED') {
+        Write-Warning "[$(Get-Date)] AppDataSync failed during recovery. Skipping AppData /MIR sync to protect persistent storage."
+    } else {
+        $appDataExcludeDirs  = @("Microsoft", "Temp", "Packages", "CrashDumps", "Comms", "ConnectedDevicesPlatform", "Google", "Mozilla")
+        $robocopyExcludeDirs = @("Cache", "Caches", "Code Cache", "GPUCache", "DawnCache", "Session Storage", "Local Storage", "IndexedDB", "Service Worker", "Network", "Crashpad", "CrashReports", "logs", "Log", "Auth", "Authentication", "Credentials", "Tokens", "Keychains")
+        $robocopyExcludeFiles = @("Cookies", "Cookies-journal", "Login Data", "Login Data-journal", "Web Data", "Web Data-journal", "*token*", "*.pem", "*.key", "id_rsa*", "id_ed25519*", "credentials.json", "auth.json", "secrets.json", "*.kdbx", "*.log", ".env")
 
-    if (Test-Path $rdpAppData) {
-        Get-ChildItem $rdpAppData -Directory | Where-Object { $appDataExcludeDirs -notcontains $_.Name } | ForEach-Object {
-            $dest = "$statePath\AppConfigs\AppData\Roaming\$($_.Name)"
-            & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS /XD $robocopyExcludeDirs /XF $robocopyExcludeFiles | Out-Null
+        if (Test-Path $rdpAppData) {
+            Get-ChildItem $rdpAppData -Directory | Where-Object { $appDataExcludeDirs -notcontains $_.Name } | ForEach-Object {
+                $dest = "$statePath\AppConfigs\AppData\Roaming\$($_.Name)"
+                & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS /XD $robocopyExcludeDirs /XF $robocopyExcludeFiles | Out-Null
+            }
         }
-    }
-    if (Test-Path $rdpLocalAppData) {
-        Get-ChildItem $rdpLocalAppData -Directory | Where-Object { $appDataExcludeDirs -notcontains $_.Name } | ForEach-Object {
-            $dest = "$statePath\AppConfigs\AppData\Local\$($_.Name)"
-            & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS /XD $robocopyExcludeDirs /XF $robocopyExcludeFiles | Out-Null
+        if (Test-Path $rdpLocalAppData) {
+            Get-ChildItem $rdpLocalAppData -Directory | Where-Object { $appDataExcludeDirs -notcontains $_.Name } | ForEach-Object {
+                $dest = "$statePath\AppConfigs\AppData\Local\$($_.Name)"
+                & robocopy $_.FullName $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS /XD $robocopyExcludeDirs /XF $robocopyExcludeFiles | Out-Null
+            }
         }
     }
 
@@ -259,14 +315,21 @@ function Invoke-Checkpoint {
     }
 
     # 6. User workspace folders — /MIR keeps the USB mirror accurate
-    Write-Host "Checkpointing user workspace incrementally..."
-    $workspaceFolders = @("Desktop","Documents","Downloads","Pictures","Music","Videos","Favorites","Links","Contacts","Saved Games","3D Objects","Searches")
-    foreach ($folder in $workspaceFolders) {
-        $src  = "$rdpProfilePath\$folder"
-        $dest = "$statePath\UserData\$folder"
-        if (Test-Path $src) {
-            if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
-            & robocopy $src $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+    # Guard: never run destructive mirror if recovery is active or if recovery UserWorkspace failed.
+    if (Test-RecoveryActive) {
+        Write-Warning "[$(Get-Date)] Recovery is active. Skipping UserData /MIR checkpoint."
+    } elseif ($recStatus -and $recStatus.Phases.UserWorkspace -match '^FAILED') {
+        Write-Warning "[$(Get-Date)] UserWorkspace failed during recovery. Skipping UserData /MIR sync to protect persistent storage."
+    } else {
+        Write-Host "Checkpointing user workspace incrementally..."
+        $workspaceFolders = @("Desktop","Documents","Downloads","Pictures","Music","Videos","Favorites","Links","Contacts","Saved Games","3D Objects","Searches")
+        foreach ($folder in $workspaceFolders) {
+            $src  = "$rdpProfilePath\$folder"
+            $dest = "$statePath\UserData\$folder"
+            if (Test-Path $src) {
+                if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force | Out-Null }
+                & robocopy $src $dest /MIR /COPY:DT /R:1 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+            }
         }
     }
 
@@ -294,10 +357,40 @@ function Invoke-Checkpoint {
 }
 
 if ($Loop) {
-    if ($InitialDelaySeconds -gt 0) {
+    # If recovery is active, wait for recovery to complete before starting checkpointing
+    if (Test-RecoveryActive) {
+        Write-Host "[$(Get-Date)] Background recovery is currently active. Waiting for recovery to complete before starting checkpoints..."
+        while (Test-RecoveryActive) {
+            @{
+                Timestamp = (Get-Date).ToString("o")
+                Status    = "WAITING_FOR_RECOVERY"
+                RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 15
+        }
+        Write-Host "[$(Get-Date)] Background recovery completed. Beginning regular checkpointing..."
+    } elseif ($InitialDelaySeconds -gt 0) {
         Write-Host "[$(Get-Date)] Background checkpoint loop started. Initial delay: $InitialDelaySeconds seconds before first checkpoint..."
-        Start-Sleep -Seconds $InitialDelaySeconds
+        $waited = 0
+        while ($waited -lt $InitialDelaySeconds) {
+            if (Test-RecoveryActive) {
+                Write-Host "[$(Get-Date)] Background recovery detected during delay. Waiting for recovery to complete..."
+                while (Test-RecoveryActive) {
+                    @{
+                        Timestamp = (Get-Date).ToString("o")
+                        Status    = "WAITING_FOR_RECOVERY"
+                        RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                    } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
+                    Start-Sleep -Seconds 15
+                }
+                Write-Host "[$(Get-Date)] Background recovery completed. Beginning regular checkpointing..."
+                break
+            }
+            Start-Sleep -Seconds 15
+            $waited += 15
+        }
     }
+
     while ($true) {
         try {
             Invoke-Checkpoint

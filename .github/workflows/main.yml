@@ -402,8 +402,8 @@ jobs:
                       if (Test-Path $recoveryStatusFile) {
                           try {
                               $rs = Get-Content $recoveryStatusFile -Raw | ConvertFrom-Json
-                              $inProgress = ($rs.Phases.PSObject.Properties | Where-Object { $_.Value -match "^IN PROGRESS" }).Count
-                              $done = ($rs.Phases.PSObject.Properties | Where-Object { $_.Value -match "^(PASS|PARTIAL|SKIPPED|QUEUED)" }).Count
+                              $inProgress = ($rs.Phases.PSObject.Properties | Where-Object { [string]$_.Value -match "^IN PROGRESS" }).Count
+                              $done = ($rs.Phases.PSObject.Properties | Where-Object { [string]$_.Value -match "^(PASS|PARTIAL|SKIPPED|QUEUED|FAILED)" }).Count
                               $total = $rs.Phases.PSObject.Properties.Count
                               Write-Host "  Recovery Health: Running (PID $recoveryPid) - $done/$total phases complete, $inProgress in progress"
                           } catch {
@@ -416,10 +416,12 @@ jobs:
                       if (Test-Path $recoveryStatusFile) {
                           try {
                               $rs = Get-Content $recoveryStatusFile -Raw | ConvertFrom-Json
-                              $failed = ($rs.Phases.PSObject.Properties | Where-Object { $_.Value -match "^FAILED" }).Count
-                              $passed = ($rs.Phases.PSObject.Properties | Where-Object { $_.Value -match "^PASS" }).Count
-                              $total = $rs.Phases.PSObject.Properties.Count
-                              Write-Host "  Recovery Health: COMPLETED ($passed passed, $failed failed, $total total)"
+                              $failed  = ($rs.Phases.PSObject.Properties | Where-Object { [string]$_.Value -match "^FAILED" }).Count
+                              $passed  = ($rs.Phases.PSObject.Properties | Where-Object { [string]$_.Value -match "^PASS" }).Count
+                              $partial = ($rs.Phases.PSObject.Properties | Where-Object { [string]$_.Value -match "^PARTIAL" }).Count
+                              $skipped = ($rs.Phases.PSObject.Properties | Where-Object { [string]$_.Value -match "^(SKIPPED|QUEUED)" }).Count
+                              $total   = $rs.Phases.PSObject.Properties.Count
+                              Write-Host "  Recovery Health: COMPLETED ($passed passed, $partial partial, $skipped skipped/queued, $failed failed, $total total)"
                           } catch {
                               Write-Host "  Recovery Health: Process finished (PID $recoveryPid)"
                           }
@@ -450,12 +452,16 @@ jobs:
                       if (Test-Path $heartbeatFile) {
                           try {
                               $hb = Get-Content $heartbeatFile -Raw | ConvertFrom-Json
-                              Write-Host "  Checkpoint Health: Status=$($hb.Status), LastCompleted=$($hb.RunTime)"
+                              if ($hb.Status -eq "WAITING_FOR_RECOVERY") {
+                                  Write-Host "  Checkpoint Health: Waiting for background recovery to complete..."
+                              } else {
+                                  Write-Host "  Checkpoint Health: Status=$($hb.Status), LastCompleted=$($hb.RunTime)"
+                              }
                           } catch {
                               Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid), reading heartbeat failed"
                           }
                       } else {
-                          Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid) - Initial checkpoint pending (delayed by 15m)"
+                          Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid) - Initial checkpoint pending"
                       }
                   }
               }
