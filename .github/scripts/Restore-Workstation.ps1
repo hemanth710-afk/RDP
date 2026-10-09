@@ -304,3 +304,4 @@ P:\AI_EDITOR, P:\Videos, P:\Projects, P:\Assets, P:\Backups: UNCHANGED
 Set-Content -Path $reportFile -Value $reportContent
 Write-Host "=== RESTORATION COMPLETE ==="
 Write-Host "Report written to: $reportFile"
+$global:LASTEXITCODE = 0

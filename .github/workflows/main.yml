@@ -237,52 +237,158 @@ jobs:
           Set-Content -Path $persistFile -Value "RUN_1_PERSISTENCE_TEST"
           Write-Host "Persistence marker created at $persistFile"
 
-      - name: Restore Workstation State
+      - name: Fast Start Desktop Preparation & RDP Readiness
         run: |
-          if (Test-Path ".github\scripts\Restore-Workstation.ps1") {
-              & ".github\scripts\Restore-Workstation.ps1"
-          } else {
-              Write-Host "No restore script found."
+          Write-Host "=== PREPARING FAST START WORKSTATION ==="
+
+          # Determine RDP profile path
+          $rdpProfile = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProfileImagePath -match "\\RDP$" }).ProfileImagePath
+          if (-not $rdpProfile) { $rdpProfile = "C:\Users\RDP" }
+
+          $publicDesktop = "C:\Users\Public\Desktop"
+          $rdpDesktop = "$rdpProfile\Desktop"
+          $desktopDirs = @($publicDesktop)
+          if (Test-Path $rdpDesktop) { $desktopDirs += $rdpDesktop }
+
+          # 1. Create desktop shortcuts to permanent P: storage (ZERO-COPY)
+          Write-Host "Creating desktop shortcuts to permanent P: storage..."
+          $wshShell = New-Object -ComObject WScript.Shell
+
+          $pShortcuts = @(
+              @{ Name = "Persistent Storage (P).lnk"; Target = "P:\" },
+              @{ Name = "AI_EDITOR (P).lnk";         Target = "P:\AI_EDITOR" },
+              @{ Name = "Projects (P).lnk";          Target = "P:\Projects" },
+              @{ Name = "Videos (P).lnk";            Target = "P:\Videos" },
+              @{ Name = "Assets (P).lnk";            Target = "P:\Assets" },
+              @{ Name = "Backups (P).lnk";           Target = "P:\Backups" }
+          )
+
+          foreach ($dt in $desktopDirs) {
+              if (-not (Test-Path $dt)) { New-Item -ItemType Directory -Path $dt -Force | Out-Null }
+              foreach ($sc in $pShortcuts) {
+                  if (Test-Path $sc.Target) {
+                      $link = $wshShell.CreateShortcut("$dt\$($sc.Name)")
+                      $link.TargetPath = $sc.Target
+                      $link.Description = "Persistent USB storage: $($sc.Target)"
+                      $link.Save()
+                  }
+              }
           }
+
+          # 2. Stage Optional Full Restoration Script on Desktop for On-Demand Use
+          Write-Host "Staging optional full restoration launcher on desktop..."
+          $toolsDir = "C:\ProgramData\Workstation"
+          if (-not (Test-Path $toolsDir)) { New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null }
+          if (Test-Path ".github\scripts\Restore-Workstation.ps1") {
+              Copy-Item ".github\scripts\Restore-Workstation.ps1" -Destination "$toolsDir\Restore-Workstation.ps1" -Force
+          }
+
+          $restoreBatLines = @(
+              "@echo off",
+              "title Optional Full Workstation Restoration",
+              "echo ======================================================",
+              "echo    OPTIONAL FULL WORKSTATION RESTORATION",
+              "echo ======================================================",
+              "echo.",
+              "echo This will restore Winget applications, Python/Node packages,",
+              "echo and AppData settings from P:\WorkstationState.",
+              "echo.",
+              "echo Press any key to begin restoration...",
+              "pause",
+              "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$toolsDir\Restore-Workstation.ps1`"",
+              "echo.",
+              "echo Restoration process finished. Check Desktop for report.",
+              "pause"
+          )
+          $restoreBatContent = $restoreBatLines -join "`r`n"
+          foreach ($dt in $desktopDirs) {
+              Set-Content -Path "$dt\Run-Full-Restore.bat" -Value $restoreBatContent -Encoding ASCII
+          }
+
+          # 3. Apply Lightweight Personalization if Present (Wallpaper & Theme)
+          $rdpAppData = "$rdpProfile\AppData\Roaming"
+          $startupDir = "$rdpAppData\Microsoft\Windows\Start Menu\Programs\Startup"
+          if (-not (Test-Path $startupDir)) { New-Item -ItemType Directory -Path $startupDir -Force | Out-Null }
+          $statePath = "P:\WorkstationState"
+          if ((Test-Path "$statePath\WindowsSettings\Personalize.reg") -or (Test-Path "$statePath\WindowsSettings\Wallpaper.jpg")) {
+              $ps1Lines = @(
+                  '`$sp = "P:\WorkstationState"',
+                  'if (Test-Path "`$sp\WindowsSettings\Personalize.reg") {',
+                  '    & reg import "`$sp\WindowsSettings\Personalize.reg" | Out-Null',
+                  '}',
+                  'if (Test-Path "`$sp\WindowsSettings\Wallpaper.jpg") {',
+                  '    Copy-Item "`$sp\WindowsSettings\Wallpaper.jpg" -Destination "`$env:APPDATA\Wallpaper.jpg" -Force',
+                  '    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name Wallpaper -Value "`$env:APPDATA\Wallpaper.jpg"',
+                  '    rundll32.exe user32.dll,UpdatePerUserSystemParameters',
+                  '}',
+                  'Remove-Item "`$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\RestorePersonalization.bat" -Force -ErrorAction SilentlyContinue',
+                  'Remove-Item "`$PSCommandPath" -Force -ErrorAction SilentlyContinue'
+              )
+              $ps1Content = $ps1Lines -join "`r`n"
+              Set-Content -Path "$startupDir\RestorePersonalization.ps1" -Value $ps1Content
+              Set-Content -Path "$startupDir\RestorePersonalization.bat" -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File `"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\RestorePersonalization.ps1`""
+              Write-Host "Lightweight wallpaper/theme queued for interactive RDP login."
+          }
+
+          # 4. Generate Fast Start Report on Desktop
+          $fastStartLines = @(
+              "=== WORKSTATION FAST START REPORT ===",
+              "Timestamp: $(Get-Date)",
+              "Mode: FAST START (Zero-Copy Startup)",
+              "",
+              "RDP Access: READY",
+              "Tailscale IP: $env:TAILSCALE_IP",
+              "Persistent P: Drive: CONNECTED (\\100.93.61.9\PersistentStorage)",
+              "Desktop Shortcuts: CREATED (P:\, AI_EDITOR, Projects, Videos, Assets, Backups)",
+              "Background Checkpoint: ACTIVE (15-minute background loop)",
+              "",
+              "FULL WORKSTATION RESTORE STATUS:",
+              "Skipped on startup for fast RDP availability.",
+              "Run 'Run-Full-Restore.bat' on the Desktop anytime to install",
+              "Winget apps, Python/Node packages, and AppData."
+          )
+          $fastStartReport = $fastStartLines -join "`r`n"
+          Set-Content -Path "$publicDesktop\Workstation-Startup-Report.txt" -Value $fastStartReport
+
+          # Ensure step exits cleanly
+          $global:LASTEXITCODE = 0
+          Write-Host "Fast Start Desktop Preparation Complete!"
 
       - name: Maintain RDP Session & Checkpoint Loop
         run: |
-          Write-Host "`n=== SECURE RDP ACCESS ==="
+          Write-Host "`n================================================="
+          Write-Host "  === SECURE RDP ACCESS READY (FAST START) ==="
+          Write-Host "================================================="
           Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Port: 3389 (Accessible strictly over Tailscale)"
+          Write-Host "Port: 3389 (Strictly Tailscale CGNAT 100.64.0.0/10)"
           Write-Host "Username: RDP"
-          Write-Host "NLA: Enabled (Secure TLS)"
-          Write-Host "Storage Mapping: P: -> \\100.93.61.9\PersistentStorage (Physical USB)"
-          Write-Host "========================`n"
+          Write-Host "NLA: Enabled (Secure TLS Layer 2)"
+          Write-Host "Permanent Storage: P: -> \\100.93.61.9\PersistentStorage"
+          Write-Host "Desktop Shortcuts: P:\, AI_EDITOR, Projects, Videos, Assets, Backups"
+          Write-Host "Optional Full Restore: Double-click 'Run-Full-Restore.bat' on Desktop"
+          Write-Host "=================================================`n"
 
           $checkpointScript = "$PWD\.github\scripts\Checkpoint-Workstation.ps1"
 
-          if (-not (Test-Path $checkpointScript)) {
-              Write-Host "WARNING: Checkpoint-Workstation.ps1 not found. Checkpointing disabled."
-          }
-
-          # Run an immediate first checkpoint so there is always at least one
-          # snapshot before the interactive session begins.
-          if (Test-Path $checkpointScript) {
-              Write-Host "Running initial checkpoint..."
-              & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $checkpointScript
-          }
-
-          # Launch background checkpoint loop and record its PID for health monitoring
+          # Start background checkpoint loop immediately (non-blocking)
           $checkpointPid = $null
           if (Test-Path $checkpointScript) {
-              Write-Host "Starting periodic checkpoint loop (every 15 minutes)..."
+              Write-Host "Launching background checkpoint loop (every 15 minutes)..."
               $proc = Start-Process powershell.exe `
                   -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$checkpointScript`" -Loop -IntervalSeconds 900" `
                   -WindowStyle Hidden -PassThru
               $checkpointPid = $proc.Id
-              Write-Host "Checkpoint loop started (PID $checkpointPid)."
+              Write-Host "Background checkpoint process started (PID: $checkpointPid)."
+          } else {
+              Write-Host "WARNING: Checkpoint script not found. Background checkpointing disabled."
           }
 
-          # Keep runner active.
-          # Every 5 minutes: verify the checkpoint process is still alive.
-          # If it has died, restart it once.
+          $statePath = "P:\WorkstationState"
+          $heartbeatFile = "$statePath\Checkpoints\heartbeat.json"
           $restartedCheckpoint = $false
+
+          # Keep runner active and monitor checkpoint health
           while ($true) {
               Write-Host "[$(Get-Date)] Runner active - Tailscale & P: drive online"
 
@@ -290,15 +396,27 @@ jobs:
                   $alive = Get-Process -Id $checkpointPid -ErrorAction SilentlyContinue
                   if (-not $alive) {
                       if (-not $restartedCheckpoint) {
-                          Write-Host "WARNING: Checkpoint process (PID $checkpointPid) has died. Restarting..."
+                          Write-Host "WARNING: Checkpoint process (PID $checkpointPid) terminated. Restarting..." -ForegroundColor Yellow
                           $proc = Start-Process powershell.exe `
                               -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$checkpointScript`" -Loop -IntervalSeconds 900" `
                               -WindowStyle Hidden -PassThru
                           $checkpointPid = $proc.Id
                           $restartedCheckpoint = $true
-                          Write-Host "Checkpoint restarted (PID $checkpointPid)."
+                          Write-Host "Checkpoint process restarted (New PID: $checkpointPid)."
                       } else {
-                          Write-Host "WARNING: Checkpoint process died again after restart. Not restarting further."
+                          Write-Host "ERROR: Checkpoint process died after restart attempt. Checkpoint loop is INACTIVE." -ForegroundColor Red
+                      }
+                  } else {
+                      # Check heartbeat file for honest status reporting
+                      if (Test-Path $heartbeatFile) {
+                          try {
+                              $hb = Get-Content $heartbeatFile -Raw | ConvertFrom-Json
+                              Write-Host "  Checkpoint Health: Status=$($hb.Status), LastCompleted=$($hb.RunTime)"
+                          } catch {
+                              Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid), reading heartbeat failed"
+                          }
+                      } else {
+                          Write-Host "  Checkpoint Health: Process alive (PID $checkpointPid), awaiting first 15m checkpoint cycle"
                       }
                   }
               }

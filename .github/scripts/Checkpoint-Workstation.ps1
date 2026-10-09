@@ -282,12 +282,29 @@ function Invoke-Checkpoint {
         }
     }
 
+    # 8. Heartbeat & Health Status
+    @{
+        Timestamp = (Get-Date).ToString("o")
+        Status    = "SUCCESS"
+        RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
+
     Write-Host "[$(Get-Date)] Checkpoint complete."
 }
 
 if ($Loop) {
     while ($true) {
-        Invoke-Checkpoint
+        try {
+            Invoke-Checkpoint
+        } catch {
+            Write-Error "Checkpoint cycle error: $_"
+            @{
+                Timestamp = (Get-Date).ToString("o")
+                Status    = "FAILED"
+                Error     = "$_"
+                RunTime   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            } | ConvertTo-Json | Set-Content "$statePath\Checkpoints\heartbeat.json" -Force -ErrorAction SilentlyContinue
+        }
         Start-Sleep -Seconds $IntervalSeconds
     }
 } else {
