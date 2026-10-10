@@ -3,6 +3,10 @@ name: RDP and Persistent Storage
 on:
   workflow_dispatch:
 
+concurrency:
+  group: persistent-storage-rdp
+  cancel-in-progress: false
+
 jobs:
   secure-rdp-and-storage:
     runs-on: windows-latest
@@ -211,20 +215,34 @@ jobs:
 
       - name: Storage Operations Proof & Persistence Test
         run: |
-          # Phase 7 & 8: Temporary read / write / modify / rename verification
-          $testFile = "P:\ANTIGRAVITY_PENDRIVE_TEST.txt"
-          Set-Content -Path $testFile -Value "DIRECT_USB_STORAGE_TEST"
+          # Phase 7 & 8: Temporary read / write / modify / rename verification (Collision-Safe)
+          $testId = [Guid]::NewGuid().ToString("N")
+          $testFile = "P:\.workstation_storage_test_$testId.tmp"
+          $renamedName = ".workstation_storage_test_${testId}_renamed.tmp"
+          $renamedFile = "P:\$renamedName"
+
+          if (Test-Path $testFile) {
+              Write-Error "Collision detected for test path $testFile! Aborting to prevent overwriting existing data."
+              exit 1
+          }
+          if (Test-Path $renamedFile) {
+              Write-Error "Collision detected for rename target $renamedFile! Aborting."
+              exit 1
+          }
+
+          Set-Content -Path $testFile -Value "DIRECT_USB_STORAGE_TEST_$testId"
           $readBack = Get-Content -Path $testFile
-          if ($readBack -ne "DIRECT_USB_STORAGE_TEST") {
+          if ($readBack -ne "DIRECT_USB_STORAGE_TEST_$testId") {
+              Remove-Item -Path $testFile -Force -ErrorAction SilentlyContinue
               Write-Error "Read/write test failed!"
               exit 1
           }
           Write-Host "Direct write and read verified on P:"
 
           # Rename test
-          $renamedFile = "P:\ANTIGRAVITY_PENDRIVE_TEST_RENAMED.txt"
-          Rename-Item -Path $testFile -NewName "ANTIGRAVITY_PENDRIVE_TEST_RENAMED.txt"
+          Rename-Item -Path $testFile -NewName $renamedName
           if (-not (Test-Path $renamedFile)) {
+              Remove-Item -Path $testFile -Force -ErrorAction SilentlyContinue
               Write-Error "Rename test failed!"
               exit 1
           }
@@ -232,14 +250,18 @@ jobs:
           Remove-Item -Path $renamedFile -Force
           Write-Host "Temporary test files cleaned up successfully."
 
-          # Phase 17: Persistence Test Marker
+          # Phase 17: Persistence Test Marker (inside Checkpoints metadata)
           $checkpointsDir = "P:\WorkstationState\Checkpoints"
           if (-not (Test-Path $checkpointsDir)) {
               New-Item -ItemType Directory -Path $checkpointsDir -Force | Out-Null
           }
-          $persistFile = "$checkpointsDir\PersistenceTest.txt"
-          Set-Content -Path $persistFile -Value "RUN_1_PERSISTENCE_TEST"
-          Write-Host "Persistence marker created at $persistFile"
+          $runMarker = @{
+              RunId     = if ($env:GITHUB_RUN_ID) { "$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)" } else { "manual-$PID" }
+              Timestamp = (Get-Date).ToString("o")
+              Marker    = "RUN_PERSISTENCE_VERIFIED"
+          } | ConvertTo-Json
+          Set-Content -Path "$checkpointsDir\PersistenceTest.json" -Value $runMarker
+          Write-Host "Persistence marker recorded at $checkpointsDir\PersistenceTest.json"
 
       - name: Fast Start Desktop Preparation & RDP Readiness
         run: |

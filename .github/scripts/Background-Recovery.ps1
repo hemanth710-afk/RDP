@@ -508,6 +508,22 @@ try {
         $manifest = "$statePath\Apps\Manifests\winget-export.json"
         if (Test-Path $manifest) {
             if (Get-Command winget -ErrorAction SilentlyContinue) {
+                # 1. Parse manifest to extract all expected package identifiers
+                $manifestContent = Get-Content $manifest -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                $expectedPackages = [System.Collections.Generic.List[string]]::new()
+                if ($manifestContent -and $manifestContent.Sources) {
+                    foreach ($source in $manifestContent.Sources) {
+                        if ($source.Packages) {
+                            foreach ($pkg in $source.Packages) {
+                                if ($pkg.PackageIdentifier) {
+                                    $expectedPackages.Add([string]$pkg.PackageIdentifier)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                # 2. Run winget import
                 & winget import -i $manifest --accept-package-agreements --accept-source-agreements --ignore-unavailable 2>&1 | Out-Null
                 $ec = $LASTEXITCODE
                 $global:LASTEXITCODE = 0
@@ -515,7 +531,11 @@ try {
                     return "PARTIAL (winget import exited with code $ec; some packages may require manual install)"
                 }
 
-                # Verify application availability in RDP user context
+                if ($expectedPackages.Count -eq 0) {
+                    return "PASS (winget manifest contains 0 packages; nothing to verify)"
+                }
+
+                # 3. Query installed applications in system and RDP user context
                 $rdpSid = $null
                 try {
                     $rdpUser = New-Object System.Security.Principal.NTAccount("RDP")
@@ -525,27 +545,30 @@ try {
                 $machineApps = @(Get-ItemProperty @(
                     "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
                     "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
-                ) -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Select-Object -ExpandProperty DisplayName)
+                ) -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName })
 
                 $rdpApps = @()
                 if ($rdpSid) {
                     $rdpApps = @(Get-ItemProperty "Registry::HKEY_USERS\$rdpSid\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
-                        Where-Object { $_.DisplayName } | Select-Object -ExpandProperty DisplayName)
+                        Where-Object { $_.DisplayName })
                 }
 
-                $runnerAdminOnly = @()
+                # Track runneradmin-only installations
+                $runnerAdminOnly = [System.Collections.Generic.List[string]]::new()
                 if ($env:USERNAME -ne "RDP" -and (Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall")) {
-                    $hkcuApps = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
-                        Where-Object { $_.DisplayName }
+                    $hkcuApps = @(Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+                        Where-Object { $_.DisplayName })
                     foreach ($app in $hkcuApps) {
                         $name = $app.DisplayName
-                        if ($machineApps -notcontains $name -and $rdpApps -notcontains $name) {
-                            $runnerAdminOnly += $name
+                        $inMachine = ($machineApps | Where-Object { $_.DisplayName -eq $name })
+                        $inRdp = ($rdpApps | Where-Object { $_.DisplayName -eq $name })
+                        if (-not $inMachine -and -not $inRdp) {
+                            $runnerAdminOnly.Add($name)
                         }
                     }
                 }
 
-                # Also check user-profile local programs directory if runneradmin
+                # Check runneradmin local programs directory
                 $runnerAdminPrograms = "$env:LOCALAPPDATA\Programs"
                 $rdpPrograms = "$rdpLocalAppData\Programs"
                 if ($env:USERNAME -ne "RDP" -and (Test-Path $runnerAdminPrograms)) {
@@ -553,19 +576,86 @@ try {
                     foreach ($dir in $localDirs) {
                         $targetRdp = Join-Path $rdpPrograms $dir.Name
                         if (-not (Test-Path $targetRdp) -and -not (Test-Path "C:\Program Files\$($dir.Name)") -and -not (Test-Path "C:\Program Files (x86)\$($dir.Name)")) {
-                            if ($runnerAdminOnly -notcontains $dir.Name) {
-                                $runnerAdminOnly += $dir.Name
+                            if (-not $runnerAdminOnly.Contains($dir.Name)) {
+                                $runnerAdminOnly.Add($dir.Name)
                             }
                         }
                     }
                 }
 
-                if ($runnerAdminOnly.Count -gt 0) {
-                    $sample = ($runnerAdminOnly | Select-Object -First 3) -join ", "
-                    return "PARTIAL (installed in runneradmin scope but not available to RDP account: $sample)"
+                # 4. Compare every expected package identifier from the manifest against reliable scope evidence
+                $verifiedPackages = [System.Collections.Generic.List[string]]::new()
+                $runnerAdminPackages = [System.Collections.Generic.List[string]]::new()
+                $unverifiedPackages = [System.Collections.Generic.List[string]]::new()
+
+                foreach ($pkgId in $expectedPackages) {
+                    $isVerifiedMachine = $false
+                    $isVerifiedRdp = $false
+                    $isRunnerOnly = $false
+
+                    # Primary check: Native winget query for machine scope (exact ID match)
+                    $wingetMachineCheck = (& winget list --id "$pkgId" --exact --scope machine --accept-source-agreements 2>&1 | Out-String)
+                    if ($LASTEXITCODE -eq 0 -and $wingetMachineCheck -match [regex]::Escape($pkgId)) {
+                        $isVerifiedMachine = $true
+                    } else {
+                        # Secondary machine check: Exact registry match in HKLM
+                        $regMachineMatch = ($machineApps | Where-Object {
+                            $_.PSChildName -eq $pkgId -or
+                            ($_.InstallLocation -and ($_.InstallLocation -like "C:\Program Files*" -or $_.InstallLocation -like "C:\Program Files (x86)*") -and ($_.PSChildName -match [regex]::Escape($pkgId) -or $_.DisplayName -eq $pkgId))
+                        })
+                        if ($regMachineMatch) {
+                            $isVerifiedMachine = $true
+                        }
+                    }
+
+                    if (-not $isVerifiedMachine -and $rdpSid) {
+                        # Check RDP user context registry
+                        $regRdpMatch = ($rdpApps | Where-Object {
+                            $_.PSChildName -eq $pkgId -or
+                            ($_.InstallLocation -and $_.InstallLocation -like "$rdpProfilePath*" -and ($_.PSChildName -match [regex]::Escape($pkgId) -or $_.DisplayName -eq $pkgId))
+                        })
+                        if ($regRdpMatch) {
+                            $isVerifiedRdp = $true
+                        }
+                    }
+
+                    if ($isVerifiedMachine -or $isVerifiedRdp) {
+                        $verifiedPackages.Add($pkgId)
+                    } else {
+                        # Check whether it was installed only in runneradmin's user scope
+                        $wingetUserCheck = (& winget list --id "$pkgId" --exact --scope user --accept-source-agreements 2>&1 | Out-String)
+                        if ($LASTEXITCODE -eq 0 -and $wingetUserCheck -match [regex]::Escape($pkgId)) {
+                            $isRunnerOnly = $true
+                        } else {
+                            foreach ($ra in $runnerAdminOnly) {
+                                if ($ra -eq $pkgId -or $pkgId -match "^[^\.]+\.$([regex]::Escape($ra))$") {
+                                    $isRunnerOnly = $true
+                                    break
+                                }
+                            }
+                        }
+
+                        if ($isRunnerOnly) {
+                            $runnerAdminPackages.Add($pkgId)
+                        } else {
+                            $unverifiedPackages.Add($pkgId)
+                        }
+                    }
                 }
 
-                return "PASS (verified winget import completed and apps available to RDP user)"
+                if ($runnerAdminPackages.Count -gt 0) {
+                    $raSummary = ($runnerAdminPackages | Select-Object -First 3) -join ", "
+                    $moreRa = if ($runnerAdminPackages.Count -gt 3) { " (+ $($runnerAdminPackages.Count - 3) more)" } else { "" }
+                    return "PARTIAL ($($verifiedPackages.Count)/$($expectedPackages.Count) verified for RDP; installed only in runneradmin scope: $raSummary$moreRa)"
+                }
+
+                if ($unverifiedPackages.Count -gt 0) {
+                    $missingSummary = ($unverifiedPackages | Select-Object -First 3) -join ", "
+                    $moreCount = if ($unverifiedPackages.Count -gt 3) { " (+ $($unverifiedPackages.Count - 3) more)" } else { "" }
+                    return "PARTIAL ($($verifiedPackages.Count)/$($expectedPackages.Count) verified for RDP; unverified: $missingSummary$moreCount)"
+                }
+
+                return "PASS (all $($expectedPackages.Count) expected packages verified available to RDP user)"
             }
             return "SKIPPED (winget not available on this runner)"
         }
